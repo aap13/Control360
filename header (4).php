@@ -1,0 +1,2 @@
+ALTER TABLE celulares
+ADD COLUMN mdm_ativo TINYINT(1) NOT NULL DEFAULT 0 AFTER setor;

@@ -1,0 +1,3 @@
+ALTER TABLE impressao_financeiro_equipamentos
+    MODIFY paginas_franquia DECIMAL(18,6) DEFAULT NULL,
+    MODIFY paginas_excedente DECIMAL(18,6) DEFAULT NULL;
