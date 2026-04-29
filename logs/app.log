@@ -1,0 +1,6 @@
+[2026-04-20 10:37:50] [email] Falha ao finalizar DATA: 451 4.3.0 Error: queue file write error
+[2026-04-28 08:49:27] ERROR Undefined index: pages in E:\Home\csfdigitaltecnol1\Web\control\impressao_financeiro.php:1643
+[2026-04-29 10:58:52] EXCEPTION SQLSTATE[HY093]: Invalid parameter number in E:\Home\csfdigitaltecnol1\Web\control\includes\chamados.php:182
+[2026-04-29 10:59:12] EXCEPTION SQLSTATE[HY093]: Invalid parameter number in E:\Home\csfdigitaltecnol1\Web\control\includes\chamados.php:182
+[2026-04-29 10:59:22] EXCEPTION SQLSTATE[HY093]: Invalid parameter number in E:\Home\csfdigitaltecnol1\Web\control\includes\chamados.php:182
+[2026-04-29 10:59:25] EXCEPTION SQLSTATE[HY093]: Invalid parameter number in E:\Home\csfdigitaltecnol1\Web\control\includes\chamados.php:182

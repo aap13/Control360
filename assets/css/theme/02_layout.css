@@ -1,0 +1,55 @@
+.sidebar{
+  background:#050505!important;
+  border-right:1px solid var(--line)!important;
+  box-shadow:none!important;
+}
+.sidebar-logo{padding:18px 18px 12px!important;border-bottom:1px solid var(--line-soft)!important}
+.sidebar-logo img{max-width:124px!important;height:auto!important;object-fit:contain!important}
+.nav-label{color:var(--muted-2)!important;letter-spacing:.14em!important;font-size:10px!important}
+.nav-link{
+  background:transparent!important;
+  border:1px solid transparent!important;
+  color:var(--muted)!important;
+  border-radius:14px!important;
+}
+.nav-link:hover{background:rgba(255,255,255,.025)!important;border-color:var(--line)!important;color:var(--text)!important}
+.nav-link.active{
+  background:linear-gradient(180deg,#b92527,#8f1819)!important;
+  border-color:rgba(163,29,30,.46)!important;
+  color:#fff!important;
+  box-shadow:none!important;
+}
+.nav-link .ni{background:#0b0b0c!important;border:1px solid var(--line)!important;color:var(--muted)!important}
+.nav-link.active .ni{background:rgba(255,255,255,.08)!important;border-color:rgba(255,255,255,.16)!important;color:#fff!important}
+
+.topbar{
+  position:sticky;top:0;z-index:50;
+  background:rgba(5,5,5,.88)!important;
+  backdrop-filter:blur(12px);
+  border-bottom:1px solid var(--line)!important;
+}
+.topbar-inner{min-height:78px!important}
+.topbar-title-icon,.page-icon,.title-icon{
+  width:40px;height:40px;border-radius:14px!important;
+  background:#0c0c0d!important;border:1px solid var(--line)!important;
+  color:#f0e8e8!important;
+}
+.topbar-actions,.page-head-actions{gap:10px!important;flex-wrap:wrap!important}
+.content-wrap{padding:24px!important}
+.content{max-width:none!important}
+.page-head{display:flex;justify-content:space-between;align-items:flex-start;gap:18px;margin-bottom:22px!important}
+.page-head-copy h2{font-size:clamp(2rem,3vw,3rem)!important;margin-bottom:8px!important}
+.eyebrow{
+  display:inline-flex!important;align-items:center!important;gap:8px!important;
+  background:rgba(239,68,68,.08)!important;border:1px solid var(--primary-border)!important;
+  color:#ffb8b8!important;border-radius:999px!important;padding:8px 14px!important;
+  font-size:11px!important;font-weight:800!important;letter-spacing:.12em!important;text-transform:uppercase!important;
+}
+
+.stats-grid,.inventory-overview-grid,.overview-meta,.analytics-grid,.report-grid-2,.fin-grid-2,.fin-kpis,.faturas-hero{gap:18px!important}
+
+
+.sidebar,.topbar,.sidebar-logo,.topbar-inner{background-image:none !important;}
+.sidebar-logo{border-bottom:1px solid var(--line)!important}
+.nav-link{box-shadow:none!important}
+.nav-link:hover{background:rgba(255,255,255,.03)!important}

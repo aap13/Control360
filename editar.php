@@ -1,262 +1,187 @@
 <?php
 require_once __DIR__ . '/includes/bootstrap.php';
 require_login();
-requireAccess('computadores');
+if (request_is_post()) {
+    require_write_access(resolveTipoModule($_POST['tipo'] ?? $_GET['tipo'] ?? ''));
+}
 require_once __DIR__ . '/includes/setor_options.php';
 
-$pageTitle = 'Computadores';
-$db = getDB();
-$canWrite = can_write_module('computadores');
-
-$LOCAIS = ['CSF SLZ', 'CSF FOR'];
-$STATUS_LIST = ['Em uso','Disponível','Manutenção','Desativado'];
-
-$busca = trim((string) get_query('q', ''));
-$filterBy = trim((string) get_query('filter_by', ''));
-$filterValue = trim((string) get_query('filter_value', ''));
-$page = query_int('page', 1, 1);
-$perPage = 20;
-
-$where = ['1=1'];
-$params = [];
-if ($busca !== '') {
-    $where[] = '('
-        . 'c.nome_dispositivo LIKE :q_nome OR '
-        . 'c.marca LIKE :q_marca OR '
-        . 'c.modelo LIKE :q_modelo OR '
-        . 'c.usuario_responsavel LIKE :q_usuario OR '
-        . 'c.numero_serie LIKE :q_serie OR '
-        . 'c.setor LIKE :q_setor_busca OR '
-        . 'c.processador LIKE :q_processador OR '
-        . 'c.armazenamento LIKE :q_armazenamento OR '
-        . 'c.sistema_operacional LIKE :q_so'
-        . ')';
-    $searchLike = '%' . $busca . '%';
-    $params[':q_nome'] = $searchLike;
-    $params[':q_marca'] = $searchLike;
-    $params[':q_modelo'] = $searchLike;
-    $params[':q_usuario'] = $searchLike;
-    $params[':q_serie'] = $searchLike;
-    $params[':q_setor_busca'] = $searchLike;
-    $params[':q_processador'] = $searchLike;
-    $params[':q_armazenamento'] = $searchLike;
-    $params[':q_so'] = $searchLike;
-}
-if ($filterBy === 'status' && in_array($filterValue, $STATUS_LIST, true)) {
-    $where[] = 'c.status = :status';
-    $params[':status'] = $filterValue;
-}
-if ($filterBy === 'setor' && in_array($filterValue, $SETORES, true)) {
-    $where[] = 'c.setor = :setor';
-    $params[':setor'] = $filterValue;
-}
-if ($filterBy === 'local' && in_array($filterValue, $LOCAIS, true)) {
-    $where[] = 'c.localizacao = :local';
-    $params[':local'] = $filterValue;
+$tipo = $_GET['tipo'] ?? '';
+$id   = (int)($_GET['id'] ?? 0);
+if (!in_array($tipo,['computador','celular'], true) || $id <= 0) {
+    redirect('index.php');
 }
 
-$countStmt = $db->prepare('SELECT COUNT(*) FROM computadores c WHERE ' . implode(' AND ', $where));
-$countStmt->execute($params);
-$totalRows = (int) $countStmt->fetchColumn();
-$pagination = paginate($totalRows, $page, $perPage);
+$db    = getDB();
+$table = $tipo==='computador' ? 'computadores' : 'celulares';
+$stmt  = $db->prepare("SELECT * FROM $table WHERE id=:id");
+$stmt->execute([':id'=>$id]);
+$r = $stmt->fetch();
 
-$sql = 'SELECT c.* FROM computadores c WHERE ' . implode(' AND ', $where)
-     . ' ORDER BY c.data_cadastro DESC, c.id DESC LIMIT :limit OFFSET :offset';
-$stmt = $db->prepare($sql);
-foreach ($params as $key => $value) {
-    $stmt->bindValue($key, $value);
+if (!$r) {
+    flash('Registro não encontrado.', 'error');
+    redirect($tipo==='computador' ? 'computadores.php' : 'celulares.php');
 }
-$stmt->bindValue(':limit', $pagination['per_page'], PDO::PARAM_INT);
-$stmt->bindValue(':offset', $pagination['offset'], PDO::PARAM_INT);
-$stmt->execute();
-$rows = $stmt->fetchAll();
 
-$statsComputadores = [
-    'total' => $totalRows,
-    'em_uso' => 0,
-    'disponivel' => 0,
-    'manutencao' => 0,
-    'unidades' => 0,
-];
-$__locaisResumo = [];
-foreach ($rows as $__rowComp) {
-    $statusAtual = (string)($__rowComp['status'] ?? '');
-    if ($statusAtual === 'Em uso') $statsComputadores['em_uso']++;
-    if ($statusAtual === 'Disponível') $statsComputadores['disponivel']++;
-    if ($statusAtual === 'Manutenção') $statsComputadores['manutencao']++;
-    if (!empty($__rowComp['localizacao'])) $__locaisResumo[(string)$__rowComp['localizacao']] = true;
-}
-$statsComputadores['unidades'] = count($__locaisResumo);
+$pageTitle = ($tipo==='computador'?'Computador':'Celular').' #'.$id;
+$erros = [];
 
-$filterLabelMap = ['status' => 'Status', 'setor' => 'Setor', 'local' => 'Unidade'];
-$filterOptionsJson = json_encode([
-    'status' => ['type' => 'select', 'placeholder' => 'Selecione o status', 'options' => array_map(function ($v) { return array('value' => $v, 'label' => $v); }, $STATUS_LIST)],
-    'setor'  => ['type' => 'select', 'placeholder' => 'Selecione o setor', 'options' => array_map(function ($v) { return array('value' => $v, 'label' => $v); }, $SETORES)],
-    'local'  => ['type' => 'select', 'placeholder' => 'Selecione a unidade', 'options' => array_map(function ($v) { return array('value' => $v, 'label' => $v); }, $LOCAIS)],
-], JSON_UNESCAPED_UNICODE);
+if (request_is_post()) {
+    validate_csrf_or_fail($_POST['csrf_token'] ?? null);
+    $marca   = trim((string) post('marca', ''));
+    $modelo  = trim((string) post('modelo', ''));
+    $usuario = trim((string) post('usuario_responsavel', ''));
+    $setor   = trim((string) post('setor', ''));
+    $status  = trim((string) post('status', ''));
+    $data_aq = trim((string) post('data_aquisicao', '')) ?: null;
 
+    validate_required($marca, 'Marca', $erros);
+    validate_required($modelo, 'Modelo', $erros);
+    validate_required($usuario, 'Usuário responsável', $erros);
+    validate_required($setor, 'Setor', $erros);
+    validate_in_list($status, ['Em uso','Disponível','Manutenção','Desativado'], 'Status', $erros);
+    validate_date_optional($data_aq, 'Data de aquisição', $erros);
 
-if (get_query('export') === 'excel') {
-    $exportStmt = $db->prepare('SELECT c.* FROM computadores c WHERE ' . implode(' AND ', $where) . ' ORDER BY c.data_cadastro DESC, c.id DESC');
-    $exportStmt->execute($params);
-    $exportRowsDb = $exportStmt->fetchAll() ?: [];
-    $exportHeaders = !empty($exportRowsDb) ? array_keys($exportRowsDb[0]) : ['mensagem'];
-    $exportRows = [];
-    if ($exportRowsDb) {
-        foreach ($exportRowsDb as $item) {
-            $line = [];
-            foreach ($exportHeaders as $header) {
-                $line[] = $item[$header] ?? '';
-            }
-            $exportRows[] = $line;
-        }
-    } else {
-        $exportRows[] = ['Nenhum registro encontrado'];
+    if ($tipo === 'celular') {
+        validate_imei_optional((string) post('imei', ''), $erros);
     }
-    export_excel_xml('computadores.xls', $exportHeaders, $exportRows);
+
+    if (empty($erros)) {
+        if ($tipo==='computador') {
+            $payload = [
+                'nome_dispositivo' => trim((string) post('nome_dispositivo', '')) ?: null,
+                'tipo' => (string) post('tipo_comp', 'Desktop'),
+                'marca' => $marca,
+                'modelo' => $modelo,
+                'numero_serie' => trim((string) post('numero_serie', '')) ?: null,
+                'patrimonio' => trim((string) post('patrimonio', '')) ?: null,
+                'processador' => trim((string) post('processador', '')) ?: null,
+                'ram' => trim((string) post('ram', '')) ?: null,
+                'armazenamento' => trim((string) post('armazenamento', '')) ?: null,
+                'sistema_operacional' => trim((string) post('sistema_operacional', '')) ?: null,
+                'usuario_responsavel' => $usuario,
+                'setor' => $setor,
+                'localizacao' => trim((string) post('localizacao', '')) ?: null,
+                'status' => $status,
+                'data_aquisicao' => $data_aq,
+                'observacoes' => trim((string) post('observacoes', '')) ?: null,
+            ];
+
+            $db->prepare("UPDATE computadores SET nome_dispositivo=:nome,tipo=:tipo,marca=:marca,modelo=:modelo,numero_serie=:ns,patrimonio=:pat,processador=:proc,ram=:ram,armazenamento=:arm,sistema_operacional=:so,usuario_responsavel=:usuario,setor=:setor,localizacao=:loc,status=:status,data_aquisicao=:da,observacoes=:obs WHERE id=:id")
+               ->execute([':nome'=>$payload['nome_dispositivo'], ':tipo'=>$payload['tipo'], ':marca'=>$payload['marca'], ':modelo'=>$payload['modelo'], ':ns'=>$payload['numero_serie'], ':pat'=>$payload['patrimonio'], ':proc'=>$payload['processador'], ':ram'=>$payload['ram'], ':arm'=>$payload['armazenamento'], ':so'=>$payload['sistema_operacional'], ':usuario'=>$payload['usuario_responsavel'], ':setor'=>$payload['setor'], ':loc'=>$payload['localizacao'], ':status'=>$payload['status'], ':da'=>$payload['data_aquisicao'], ':obs'=>$payload['observacoes'], ':id'=>$id]);
+
+            audit_log('update', 'computadores', $id, ['antes' => $r, 'depois' => $payload]);
+            ativo_usuario_historico_registrar('computador', $id, (string) $payload['usuario_responsavel'], (string) $payload['setor'], 'Responsável atualizado no cadastro');
+            flash('Computador atualizado!');
+            redirect('computadores.php');
+        }
+
+        $payload = [
+            'tipo' => (string) post('tipo_cel', 'Smartphone'),
+            'marca' => $marca,
+            'modelo' => $modelo,
+            'numero_serie' => trim((string) post('numero_serie', '')) ?: null,
+            'imei' => trim((string) post('imei', '')) ?: null,
+            'numero_chip' => trim((string) post('numero_chip', '')) ?: null,
+            'operadora' => trim((string) post('operadora', '')) ?: null,
+            'usuario_responsavel' => $usuario,
+            'setor' => $setor,
+            'mdm_ativo' => (int) post('mdm_ativo', 0),
+            'status' => $status,
+            'data_aquisicao' => $data_aq,
+            'observacoes' => trim((string) post('observacoes', '')) ?: null,
+        ];
+
+        $db->prepare("UPDATE celulares SET tipo=:tipo,marca=:marca,modelo=:modelo,numero_serie=:ns,imei=:imei,numero_chip=:num,operadora=:op,usuario_responsavel=:usuario,setor=:setor,mdm_ativo=:mdm,status=:status,data_aquisicao=:da,observacoes=:obs WHERE id=:id")
+           ->execute([':tipo'=>$payload['tipo'], ':marca'=>$payload['marca'], ':modelo'=>$payload['modelo'], ':ns'=>$payload['numero_serie'], ':imei'=>$payload['imei'], ':num'=>$payload['numero_chip'], ':op'=>$payload['operadora'], ':usuario'=>$payload['usuario_responsavel'], ':setor'=>$payload['setor'], ':mdm'=>$payload['mdm_ativo'], ':status'=>$payload['status'], ':da'=>$payload['data_aquisicao'], ':obs'=>$payload['observacoes'], ':id'=>$id]);
+
+        audit_log('update', 'celulares', $id, ['antes' => $r, 'depois' => $payload]);
+        ativo_usuario_historico_registrar('celular', $id, (string) $payload['usuario_responsavel'], (string) $payload['setor'], 'Responsável atualizado no cadastro');
+        flash('Celular atualizado!');
+        redirect('celulares.php');
+    }
+
+    $r = array_merge($r, $_POST);
 }
 
 include 'includes/header.php';
 echo render_flash();
 ?>
-<div class="page-head"><div class="page-head-copy"><h2>Inventário de computadores</h2><p>Consulte ativos de desktop e notebook com busca rápida, filtro complementar e um resumo técnico mais legível.</p></div><?php if ($canWrite): ?><div class="page-head-actions"><a href="cadastrar.php?tipo=computador" class="btn btn-primary"><?= icon('plus') ?> Novo computador</a></div><?php endif; ?></div>
+<div class="page-head"><div class="page-head-copy"><h2><?= $tipo==='computador' ? 'Editar computador' : 'Editar celular' ?></h2><p>Atualize o cadastro mantendo o mesmo padrão visual do restante do sistema.</p></div></div>
+<?php if (!empty($erros)): ?>
+<div class="alert alert-error"><?= icon('off') ?> <?= implode(' · ', array_map('e',$erros)) ?></div>
+<?php endif; ?>
 
-<div class="inventory-overview-grid">
-    <div class="inventory-kpi-card">
-        <span class="inventory-kpi-label">Total</span>
-        <strong><?= number_format((float) $statsComputadores['total'], 0, ',', '.') ?></strong>
-        <small>Computadores listados</small>
-    </div>
-    <div class="inventory-kpi-card">
-        <span class="inventory-kpi-label">Em uso</span>
-        <strong><?= number_format((float) $statsComputadores['em_uso'], 0, ',', '.') ?></strong>
-        <small>Status operacional</small>
-    </div>
-    <div class="inventory-kpi-card">
-        <span class="inventory-kpi-label">Disponíveis</span>
-        <strong><?= number_format((float) $statsComputadores['disponivel'], 0, ',', '.') ?></strong>
-        <small>Prontos para uso</small>
-    </div>
-    <div class="inventory-kpi-card">
-        <span class="inventory-kpi-label">Unidades</span>
-        <strong><?= number_format((float) $statsComputadores['unidades'], 0, ',', '.') ?></strong>
-        <small>Locais com ativos</small>
-    </div>
+<div style="margin-bottom:18px">
+    <a href="<?= $tipo==='computador'?'computadores.php':'celulares.php' ?>" class="btn btn-ghost btn-sm"><?= icon('back') ?> Voltar</a>
 </div>
 
-<div class="card inventory-card" style="padding:0;overflow:hidden">
-    <div style="display:flex;align-items:center;justify-content:space-between;padding:14px 18px;border-bottom:1px solid var(--bdr);gap:12px;flex-wrap:wrap">
-        <div class="stitle" style="margin:0;flex:1"><?= icon('computer') ?> Computadores
-            <span style="font-size:12px;color:var(--t3);font-weight:400;margin-left:6px"><?= $totalRows ?> registro<?= $totalRows !== 1 ? 's' : '' ?></span>
-        </div>
-</div>
+<div class="card">
+<form method="post">
+<?= csrf_input() ?>
 
-    <form method="get" class="toolbar-shell" id="computadores-filter-form">
-        <div class="toolbar-grow">
-            <input type="text" name="q" placeholder="Buscar por nome, usuário, serial, processador, SSD..." value="<?= e($busca) ?>">
-        </div>
-        <div class="toolbar-field">
-            <select name="filter_by" id="computadores-filter-by">
-                <option value="">Filtro complementar</option>
-                <option value="status" <?= $filterBy==='status'?'selected':'' ?>>Status</option>
-                <option value="setor" <?= $filterBy==='setor'?'selected':'' ?>>Setor</option>
-                <option value="local" <?= $filterBy==='local'?'selected':'' ?>>Unidade</option>
-            </select>
-        </div>
-        <div class="toolbar-field" id="computadores-filter-value-slot"></div>
-        <div class="toolbar-actions">
-            <button type="submit" class="btn btn-ghost btn-sm"><?= icon('filter') ?> Filtrar</button>
-            <a href="computadores.php" class="btn btn-ghost btn-sm">Limpar</a>
-            <a href="computadores.php<?= e(current_query(['export' => 'excel'], ['page'])) ?>" class="btn btn-sm btn-export">Exportar Excel</a>
-        </div>
+<?php if ($tipo==='computador'): ?>
+<div class="stitle"><?= icon('computer') ?> Identificação</div>
+<div class="form-grid" style="margin-bottom:22px">
+    <div class="form-group full"><label>Nome do Dispositivo</label><input type="text" name="nome_dispositivo" value="<?= e($r['nome_dispositivo']??'') ?>"></div>
+    <div class="form-group"><label>Tipo</label><select name="tipo_comp"><?php foreach(['Desktop','Notebook','All-in-One','Workstation','Servidor'] as $t): ?><option <?= ($r['tipo']??'')===$t?'selected':'' ?>><?= $t ?></option><?php endforeach; ?></select></div>
+    <div class="form-group"><label>Status</label><select name="status"><?php foreach(['Em uso','Disponível','Manutenção','Desativado'] as $s): ?><option <?= ($r['status']??'')===$s?'selected':'' ?>><?= $s ?></option><?php endforeach; ?></select></div>
+    <div class="form-group"><label>Marca <span class="req">*</span></label><input type="text" name="marca" value="<?= e($r['marca']??'') ?>"></div>
+    <div class="form-group"><label>Modelo <span class="req">*</span></label><input type="text" name="modelo" value="<?= e($r['modelo']??'') ?>"></div>
+    <div class="form-group"><label>Número de Série</label><input type="text" name="numero_serie" value="<?= e($r['numero_serie']??'') ?>"></div>
+    <div class="form-group"><label>Nº Patrimônio</label><input type="text" name="patrimonio" value="<?= e($r['patrimonio']??'') ?>"></div>
+    <div class="form-group"><label>Data de Aquisição</label><input type="date" name="data_aquisicao" value="<?= e($r['data_aquisicao']??'') ?>"></div>
+</div>
+<div class="stitle"><?= icon('chip') ?> Hardware</div>
+<div class="form-grid" style="margin-bottom:22px">
+    <div class="form-group full"><label>Processador</label><input type="text" name="processador" value="<?= e($r['processador']??'') ?>"></div>
+    <div class="form-group"><label>RAM</label><input type="text" name="ram" value="<?= e($r['ram']??'') ?>"></div>
+    <div class="form-group"><label>Armazenamento</label><input type="text" name="armazenamento" value="<?= e($r['armazenamento']??'') ?>"></div>
+    <div class="form-group full"><label>Sistema Operacional</label><select name="sistema_operacional"><option value="">— Selecione —</option><?php foreach(['Windows 10','Windows 11','Windows 7','Ubuntu','macOS','Linux Mint','Chrome OS','Outro'] as $so): ?><option <?= ($r['sistema_operacional']??'')===$so?'selected':'' ?>><?= $so ?></option><?php endforeach; ?></select></div>
+</div>
+<div class="stitle"><?= icon('search') ?> Responsável</div>
+<div class="form-grid" style="margin-bottom:22px">
+    <div class="form-group"><label>Usuário Responsável <span class="req">*</span></label><input type="text" name="usuario_responsavel" value="<?= e($r['usuario_responsavel']??'') ?>"></div>
+    <div class="form-group"><label>Setor <span class="req">*</span></label><select name="setor"><option value="">— Selecione —</option><?php foreach($SETORES as $s): ?><option value="<?= e($s) ?>" <?= ($r['setor']??'')===$s?'selected':'' ?>><?= e($s) ?></option><?php endforeach; ?></select></div>
+    <div class="form-group"><label>Localização</label><select name="localizacao"><option value="">— Selecione —</option><option value="CSF SLZ" <?= ($r['localizacao']??'')==='CSF SLZ'?'selected':'' ?>>CSF SLZ</option><option value="CSF FOR" <?= ($r['localizacao']??'')==='CSF FOR'?'selected':'' ?>>CSF FOR</option></select></div>
+    <div class="form-group full"><label>Observações</label><textarea name="observacoes"><?= e($r['observacoes']??'') ?></textarea></div>
+</div>
+<?php else: ?>
+<div class="stitle"><?= icon('phone') ?> Dispositivo</div>
+<div class="form-grid" style="margin-bottom:22px">
+    <div class="form-group"><label>Tipo</label><select name="tipo_cel"><option <?= ($r['tipo']??'')==='Smartphone'?'selected':'' ?>>Smartphone</option><option <?= ($r['tipo']??'')==='Tablet'?'selected':'' ?>>Tablet</option></select></div>
+    <div class="form-group"><label>Status</label><select name="status"><?php foreach(['Em uso','Disponível','Manutenção','Desativado'] as $s): ?><option <?= ($r['status']??'')===$s?'selected':'' ?>><?= $s ?></option><?php endforeach; ?></select></div>
+    <div class="form-group"><label>Marca <span class="req">*</span></label><input type="text" name="marca" value="<?= e($r['marca']??'') ?>"></div>
+    <div class="form-group"><label>Modelo <span class="req">*</span></label><input type="text" name="modelo" value="<?= e($r['modelo']??'') ?>"></div>
+    <div class="form-group"><label>Número de Série</label><input type="text" name="numero_serie" value="<?= e($r['numero_serie']??'') ?>"></div>
+    <div class="form-group"><label>IMEI</label><input type="text" name="imei" value="<?= e($r['imei']??'') ?>"></div>
+    <div class="form-group"><label>Número do Chip</label><input type="text" name="numero_chip" value="<?= e($r['numero_chip']??'') ?>"></div>
+    <div class="form-group"><label>Operadora</label><select name="operadora"><option value="">— Selecione —</option><?php foreach(['Claro','Vivo','TIM','Oi','Algar','Nextel','Sem chip','Outra'] as $op): ?><option <?= ($r['operadora']??'')===$op?'selected':'' ?>><?= $op ?></option><?php endforeach; ?></select></div>
+    <div class="form-group"><label>MDM</label><select name="mdm_ativo"><option value="0" <?= (($r['mdm_ativo']??'0')=='0')?'selected':'' ?>>Desativado</option><option value="1" <?= (($r['mdm_ativo']??'0')=='1')?'selected':'' ?>>Ativado</option></select></div>
+    <div class="form-group"><label>Data de Aquisição</label><input type="date" name="data_aquisicao" value="<?= e($r['data_aquisicao']??'') ?>"></div>
+</div>
+<div class="stitle"><?= icon('search') ?> Responsável</div>
+<div class="form-grid" style="margin-bottom:22px">
+    <div class="form-group"><label>Usuário Responsável <span class="req">*</span></label><input type="text" name="usuario_responsavel" value="<?= e($r['usuario_responsavel']??'') ?>"></div>
+    <div class="form-group"><label>Setor <span class="req">*</span></label><select name="setor"><option value="">— Selecione —</option><?php foreach($SETORES as $s): ?><option value="<?= e($s) ?>" <?= ($r['setor']??'')===$s?'selected':'' ?>><?= e($s) ?></option><?php endforeach; ?></select></div>
+    <div class="form-group full"><label>Observações</label><textarea name="observacoes"><?= e($r['observacoes']??'') ?></textarea></div>
+</div>
+<?php endif; ?>
+
+<div style="display:flex;gap:11px;flex-wrap:wrap">
+    <button type="submit" class="btn btn-primary"><?= icon('check') ?> Salvar Alterações</button>
+    <form method="post" action="excluir.php" style="display:inline" onsubmit="return confirm('Excluir este registro?')">
+        <?= csrf_input() ?>
+        <input type="hidden" name="tipo" value="<?= e($tipo) ?>">
+        <input type="hidden" name="id" value="<?= (int)$id ?>">
+        <button type="submit" class="btn btn-danger"><?= icon('trash') ?> Excluir</button>
     </form>
-    <?php if ($filterBy && $filterValue !== ''): ?>
-    <div class="filter-note" style="padding:0 18px 14px">Filtro aplicado: <strong><?= e($filterLabelMap[$filterBy] ?? $filterBy) ?></strong> = <?= e($filterValue) ?></div>
-    <?php endif; ?>
-
-    <?php if (empty($rows)): ?>
-    <div class="empty-state">
-        <?= icon('computer') ?>
-        <p>Nenhum computador encontrado.<?php if ($canWrite): ?><br><a href="cadastrar.php?tipo=computador">Cadastrar novo</a><?php endif; ?></p>
-    </div>
-    <?php else: ?>
-    <div class="table-wrap inventory-table-wrap">
-    <table class="inventory-table inventory-table-computadores">
-        <thead><tr>
-            <th style="width:52px">#</th>
-            <th>Ativo</th>
-            <th style="width:320px">Contexto</th>
-            <th style="width:300px">Especificações</th>
-            <th style="width:120px">Status</th>
-            <th style="width:84px">Ações</th>
-        </tr></thead>
-        <tbody>
-        <?php $sm = ['Em uso'=>'b-green','Disponível'=>'b-neutral','Manutenção'=>'b-amber','Desativado'=>'b-gray']; foreach ($rows as $c): ?>
-        <?php $displayName = trim((string) ($c['nome_dispositivo'] ?: ($c['marca'] . ' ' . $c['modelo']))); ?>
-        <tr>
-            <td class="mono" style="color:var(--t3)"><?= (int)$c['id'] ?></td>
-            <td>
-                <div class="asset-premium-main">
-                    <div class="asset-premium-title">
-                        <span class="asset-name"><?= e($displayName ?: 'Computador sem nome') ?></span>
-                        <span class="asset-sub"><?= e($c['marca']) ?> · <?= e($c['modelo']) ?><?= $c['tipo'] ? ' · ' . e($c['tipo']) : '' ?></span>
-                    </div>
-                    <div class="asset-premium-row">
-                        <span class="asset-inline-chip"><?= icon('search') ?>Série: <?= e($c['numero_serie'] ?: '—') ?></span>
-                        <?php if ($c['nome_dispositivo']): ?><span class="asset-inline-chip"><?= icon('computer') ?>Hostname: <?= e($c['nome_dispositivo']) ?></span><?php endif; ?>
-                    </div>
-                </div>
-            </td>
-            <td>
-                <div class="asset-inline-info">
-                    <span><?= icon('user') ?> <?= e($c['usuario_responsavel'] ?: 'Não vinculado') ?></span>
-                    <span><?= icon('box') ?> <?= e($c['setor'] ?: '—') ?></span>
-                    <span><?= icon('computer') ?> <?= e($c['localizacao'] ?: '—') ?></span>
-                </div>
-            </td>
-            <td>
-                <div class="asset-spec-inline">
-                    <span><?= e($c['sistema_operacional'] ?: '—') ?></span>
-                    <span><?= e($c['processador'] ?: '—') ?></span>
-                    <span><?= e($c['ram'] ?: '—') ?></span>
-                    <span><?= e($c['armazenamento'] ?: '—') ?></span>
-                </div>
-            </td>
-            <td><span class="badge <?= $sm[$c['status']] ?? 'b-gray' ?>"><?= e($c['status']) ?></span></td>
-            <td><?php if ($canWrite): ?><div class="act-btns"><a href="editar.php?tipo=computador&id=<?= (int)$c['id'] ?>" class="btn-icon edit" title="Editar"><?= icon('edit') ?></a><form method="post" action="excluir.php" style="display:inline" onsubmit="return confirm('Excluir este computador?')"><?= csrf_input() ?><input type="hidden" name="tipo" value="computador"><input type="hidden" name="id" value="<?= (int)$c['id'] ?>"><button type="submit" class="btn-icon del" title="Excluir" style="border:none;background:none;padding:0"><?= icon('trash') ?></button></form></div><?php else: ?><span class="sub">Somente leitura</span><?php endif; ?></td>
-        </tr>
-        <?php endforeach; ?>
-        </tbody>
-    </table>
-    </div>
-    <?= render_pagination($pagination) ?>
-    <?php endif; ?>
+    <a href="<?= $tipo==='computador'?'computadores.php':'celulares.php' ?>" class="btn btn-ghost"><?= icon('back') ?> Cancelar</a>
 </div>
-<script>
-(function(){
-    const config = <?= $filterOptionsJson ?>;
-    const select = document.getElementById('computadores-filter-by');
-    const slot = document.getElementById('computadores-filter-value-slot');
-    const currentValue = <?= json_encode($filterValue, JSON_UNESCAPED_UNICODE) ?>;
-    function esc(value){ return String(value).replace(/"/g, '&quot;'); }
-    function renderField(){
-        const key = select.value;
-        if (!key || !config[key]) {
-            slot.innerHTML = '<input type="text" value="" placeholder="Valor do filtro" disabled>';
-            return;
-        }
-        const item = config[key];
-        let html = '<select name="filter_value">';
-        html += '<option value="">' + item.placeholder + '</option>';
-        item.options.forEach(function(opt){
-            const selected = String(opt.value) === String(currentValue) ? ' selected' : '';
-            html += '<option value="' + esc(opt.value) + '"' + selected + '>' + opt.label + '</option>';
-        });
-        html += '</select>';
-        slot.innerHTML = html;
-    }
-    renderField();
-    select.addEventListener('change', renderField);
-})();
-</script>
+</form>
+</div>
+
+<div style="margin-top:14px;padding:11px 16px;background:var(--bg2);border:1px solid var(--bdr);border-radius:var(--radius);font-size:12px;color:var(--t3);font-family:'JetBrains Mono',monospace">
+    Cadastrado em: <?= e($r['data_cadastro']??'—') ?> · Atualizado em: <?= e($r['data_atualizacao']??'—') ?>
+</div>
 <?php include 'includes/footer.php'; ?>

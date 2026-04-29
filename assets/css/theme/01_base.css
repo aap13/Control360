@@ -1,0 +1,65 @@
+html,body{background:var(--bg-main)!important;color:var(--text)!important;font-family:var(--font-sans)!important}
+body{
+  min-height:100vh;
+  background:var(--bg-main)!important;
+  background-image:none!important;
+}
+*{scrollbar-color:#524242 #090909}
+*::-webkit-scrollbar{width:10px;height:10px}
+*::-webkit-scrollbar-track{background:#090909}
+*::-webkit-scrollbar-thumb{background:#3a2a2b;border-radius:999px;border:2px solid #090909}
+a{color:inherit}
+h1,h2,h3,h4,h5,h6{color:var(--text)!important;letter-spacing:-.03em}
+p,small,label,span,div,td,th{color:inherit}
+.text-muted,.muted,.sub,.page-head-copy p,.report-sub,.sc-foot,.s-sub,.inventory-kpi-sub,.topbar-title-text span{color:var(--muted)!important}
+hr{border-color:var(--line)!important;opacity:1}
+
+input,select,textarea,.form-control,.toolbar-select{
+  background:#070707!important;
+  border:1px solid var(--line)!important;
+  color:var(--text)!important;
+  border-radius:14px!important;
+  box-shadow:none!important;
+}
+input::placeholder,textarea::placeholder{color:var(--muted-2)!important}
+input:focus,select:focus,textarea:focus,.form-control:focus,.toolbar-select:focus{
+  border-color:var(--primary-border)!important;
+  box-shadow:0 0 0 3px rgba(163,29,30,.12)!important;
+  outline:none!important;
+  background:#0b0b0c!important;
+}
+
+.card,.report-card,.inventory-card,.overview-card,.analytics-card,.fin-card,.fin-filters-card,
+.base-import-card,.chamados-board,.table-wrap,.inventory-table-wrap,.fin-table-wrap,
+.toolbar-shell,.empty-state,.alert,.faturas-side-card,.faturas-chart-card,.base-tip,.metric-chip,
+.stat-card,.inventory-kpi-card,.fin-kpi,.faturas-kpi,.soft-panel{
+  background:var(--bg-card)!important;
+  background-image:none!important;
+  border:1px solid var(--line)!important;
+  border-radius:18px!important;
+  box-shadow:var(--shadow-sm)!important;
+}
+
+.page-shell,.content,.content-wrap,.page-head,.page-head-copy,.page-head-actions{max-width:100%}
+
+
+/* Final neutral dark overrides */
+html,body,body.theme-dark{
+  background:#050505 !important;
+  color:var(--text)!important;
+}
+body::before,body::after,
+.grid-bg,.bg-grid,.background-grid,.pattern-grid,.page-grid,.dashboard-grid-bg,
+[class*="grid-bg"],[class*="background-grid"],[class*="pattern-grid"]{
+  display:none !important;
+  background-image:none !important;
+  content:none !important;
+}
+.main,.main-content,.content,.content-wrap,.page-content,.card,.table-responsive,.sidebar,.topbar,.navbar{
+  background-image:none !important;
+}
+input,select,textarea,.form-control,.toolbar-select,
+.form-group input,.form-group select,.form-group textarea,
+.toolbar-shell input,.toolbar-shell select,.toolbar-shell textarea{
+  background:#080808!important;
+}

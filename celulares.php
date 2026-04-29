@@ -1,752 +1,273 @@
 <?php
+require_once __DIR__ . '/includes/bootstrap.php';
+require_login();
+requireAccess('celulares');
+require_once __DIR__ . '/includes/setor_options.php';
 
-function impressao_financeiro_ensure_tables(): void
-{
-    $db = getDB();
+$pageTitle = 'Celulares';
+$db = getDB();
+$canWrite = can_write_module('celulares');
 
-    $db->exec("CREATE TABLE IF NOT EXISTS impressao_financeiro_importacoes (
-        id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-        cliente_id INT UNSIGNED NOT NULL,
-        competencia VARCHAR(7) NOT NULL,
-        arquivo_nome VARCHAR(255) NOT NULL,
-        arquivo_base VARCHAR(190) NOT NULL,
-        grupo_nome VARCHAR(190) DEFAULT NULL,
-        empresa_principal VARCHAR(190) DEFAULT NULL,
-        total_registros INT UNSIGNED NOT NULL DEFAULT 0,
-        total_paginas BIGINT NOT NULL DEFAULT 0,
-        total_fixo DECIMAL(14,4) NOT NULL DEFAULT 0,
-        total_variavel DECIMAL(14,4) NOT NULL DEFAULT 0,
-        total_geral DECIMAL(14,4) NOT NULL DEFAULT 0,
-        uploaded_by INT UNSIGNED DEFAULT NULL,
-        created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-        UNIQUE KEY uniq_financeiro_base (cliente_id, competencia, arquivo_base)
-    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+$STATUS_LIST = ['Em uso','Disponível','Manutenção','Desativado'];
+$MDM_LIST = ['1' => 'Ativado', '0' => 'Desativado'];
+$OPERADORAS = array_values(array_filter($db->query("SELECT DISTINCT operadora FROM celulares WHERE operadora IS NOT NULL AND operadora <> '' ORDER BY operadora")->fetchAll(PDO::FETCH_COLUMN)));
+$TIPOS = array_values(array_filter($db->query("SELECT DISTINCT tipo FROM celulares WHERE tipo IS NOT NULL AND tipo <> '' ORDER BY tipo")->fetchAll(PDO::FETCH_COLUMN)));
 
-    $db->exec("CREATE TABLE IF NOT EXISTS impressao_financeiro_equipamentos (
-        id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-        importacao_id INT UNSIGNED NOT NULL,
-        cliente_id INT UNSIGNED NOT NULL,
-        competencia VARCHAR(7) NOT NULL,
-        grupo_nome VARCHAR(190) DEFAULT NULL,
-        empresa VARCHAR(255) DEFAULT NULL,
-        contrato_numero VARCHAR(60) DEFAULT NULL,
-        contrato_codigo VARCHAR(60) DEFAULT NULL,
-        cliente_codigo VARCHAR(60) DEFAULT NULL,
-        uf VARCHAR(10) DEFAULT NULL,
-        municipio VARCHAR(150) DEFAULT NULL,
-        centro_custo VARCHAR(120) DEFAULT NULL,
-        local_inst VARCHAR(190) DEFAULT NULL,
-        departamento VARCHAR(190) DEFAULT NULL,
-        tipo VARCHAR(100) DEFAULT NULL,
-        equipamento_codigo VARCHAR(80) DEFAULT NULL,
-        modelo VARCHAR(150) DEFAULT NULL,
-        serie VARCHAR(150) DEFAULT NULL,
-        patrimonio VARCHAR(150) DEFAULT NULL,
-        medidor VARCHAR(80) DEFAULT NULL,
-        data_leitura DATE DEFAULT NULL,
-        medidor_inicial DECIMAL(18,2) DEFAULT NULL,
-        medidor_final DECIMAL(18,2) DEFAULT NULL,
-        paginas_produzidas INT DEFAULT 0,
-        paginas_franquia DECIMAL(18,6) DEFAULT NULL,
-        paginas_excedente DECIMAL(18,6) DEFAULT NULL,
-        modelo_cobranca VARCHAR(30) NOT NULL DEFAULT 'sem_franquia',
-        valor_fixo DECIMAL(14,4) DEFAULT 0,
-        valor_franquia DECIMAL(14,4) DEFAULT 0,
-        valor_excedente DECIMAL(14,4) DEFAULT 0,
-        valor_unitario DECIMAL(14,6) DEFAULT NULL,
-        valor_variavel DECIMAL(14,4) DEFAULT 0,
-        valor_total DECIMAL(14,4) DEFAULT 0,
-        arquivo_origem VARCHAR(255) DEFAULT NULL,
-        arquivo_base VARCHAR(190) DEFAULT NULL,
-        created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-        INDEX idx_fin_cliente_comp (cliente_id, competencia),
-        INDEX idx_fin_empresa (empresa),
-        INDEX idx_fin_serie (serie),
-        CONSTRAINT fk_fin_importacao FOREIGN KEY (importacao_id) REFERENCES impressao_financeiro_importacoes(id) ON DELETE CASCADE
-    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+$busca = trim((string) get_query('q', ''));
+$filterBy = trim((string) get_query('filter_by', ''));
+$filterValue = trim((string) get_query('filter_value', ''));
+$page = query_int('page', 1, 1);
+$perPage = 20;
 
-    ensure_column_exists($db, 'impressao_financeiro_equipamentos', 'modelo_cobranca', "VARCHAR(30) NOT NULL DEFAULT 'sem_franquia' AFTER paginas_excedente");
-    ensure_column_exists($db, 'impressao_financeiro_equipamentos', 'valor_franquia', 'DECIMAL(14,4) NOT NULL DEFAULT 0 AFTER valor_fixo');
-    ensure_column_exists($db, 'impressao_financeiro_equipamentos', 'valor_excedente', 'DECIMAL(14,4) NOT NULL DEFAULT 0 AFTER valor_franquia');
-    $db->exec("ALTER TABLE impressao_financeiro_equipamentos MODIFY paginas_franquia DECIMAL(18,6) DEFAULT NULL, MODIFY paginas_excedente DECIMAL(18,6) DEFAULT NULL");
-    ensure_column_exists($db, 'impressao_financeiro_importacoes', 'total_paginas', 'BIGINT NOT NULL DEFAULT 0 AFTER total_registros');
-    ensure_column_exists($db, 'impressao_financeiro_importacoes', 'total_fixo', 'DECIMAL(14,4) NOT NULL DEFAULT 0 AFTER total_paginas');
-    ensure_column_exists($db, 'impressao_financeiro_importacoes', 'total_variavel', 'DECIMAL(14,4) NOT NULL DEFAULT 0 AFTER total_fixo');
-    ensure_column_exists($db, 'impressao_financeiro_importacoes', 'total_geral', 'DECIMAL(14,4) NOT NULL DEFAULT 0 AFTER total_variavel');
+$where = ['1=1'];
+$params = [];
+if ($busca !== '') {
+    $where[] = '('
+        . 'c.marca LIKE :q_marca OR '
+        . 'c.modelo LIKE :q_modelo OR '
+        . 'c.usuario_responsavel LIKE :q_usuario OR '
+        . 'c.imei LIKE :q_imei OR '
+        . 'c.numero_chip LIKE :q_chip OR '
+        . 'c.setor LIKE :q_setor_busca OR '
+        . 'c.numero_serie LIKE :q_serie OR '
+        . 'c.operadora LIKE :q_operadora_busca'
+        . ')';
+    $searchLike = '%' . $busca . '%';
+    $params[':q_marca'] = $searchLike;
+    $params[':q_modelo'] = $searchLike;
+    $params[':q_usuario'] = $searchLike;
+    $params[':q_imei'] = $searchLike;
+    $params[':q_chip'] = $searchLike;
+    $params[':q_setor_busca'] = $searchLike;
+    $params[':q_serie'] = $searchLike;
+    $params[':q_operadora_busca'] = $searchLike;
+}
+if ($filterBy === 'status' && in_array($filterValue, $STATUS_LIST, true)) {
+    $where[] = 'c.status = :status';
+    $params[':status'] = $filterValue;
+}
+if ($filterBy === 'setor' && in_array($filterValue, $SETORES, true)) {
+    $where[] = 'c.setor = :setor';
+    $params[':setor'] = $filterValue;
+}
+if ($filterBy === 'operadora' && in_array($filterValue, $OPERADORAS, true)) {
+    $where[] = 'c.operadora = :operadora';
+    $params[':operadora'] = $filterValue;
+}
+if ($filterBy === 'tipo' && in_array($filterValue, $TIPOS, true)) {
+    $where[] = 'c.tipo = :tipo';
+    $params[':tipo'] = $filterValue;
+}
+if ($filterBy === 'mdm' && array_key_exists($filterValue, $MDM_LIST)) {
+    $where[] = 'c.mdm_ativo = :mdm';
+    $params[':mdm'] = (int) $filterValue;
 }
 
-function impressao_financeiro_normalize_header($value): string
-{
-    $value = (string) $value;
-    $value = str_replace(["Â ", "â"], ' ', $value);
-    $value = trim($value);
-    if ($value === '') {
-        return '';
-    }
-    if (function_exists('mb_strtolower')) {
-        $value = mb_strtolower($value, 'UTF-8');
+$countStmt = $db->prepare('SELECT COUNT(*) FROM celulares c WHERE ' . implode(' AND ', $where));
+$countStmt->execute($params);
+$totalRows = (int) $countStmt->fetchColumn();
+$pagination = paginate($totalRows, $page, $perPage);
+
+$sql = 'SELECT c.* FROM celulares c WHERE ' . implode(' AND ', $where)
+     . ' ORDER BY c.data_cadastro DESC, c.id DESC LIMIT :limit OFFSET :offset';
+$stmt = $db->prepare($sql);
+foreach ($params as $key => $value) {
+    $stmt->bindValue($key, $value);
+}
+$stmt->bindValue(':limit', $pagination['per_page'], PDO::PARAM_INT);
+$stmt->bindValue(':offset', $pagination['offset'], PDO::PARAM_INT);
+$stmt->execute();
+$rows = $stmt->fetchAll();
+
+$statsCelulares = [
+    'total' => $totalRows,
+    'em_uso' => 0,
+    'disponivel' => 0,
+    'manutencao' => 0,
+    'mdm_ativo' => 0,
+];
+foreach ($rows as $__rowCel) {
+    $statusAtual = (string)($__rowCel['status'] ?? '');
+    if ($statusAtual === 'Em uso') $statsCelulares['em_uso']++;
+    if ($statusAtual === 'Disponível') $statsCelulares['disponivel']++;
+    if ($statusAtual === 'Manutenção') $statsCelulares['manutencao']++;
+    if (!empty($__rowCel['mdm_ativo'])) $statsCelulares['mdm_ativo']++;
+}
+
+$filterLabelMap = ['status' => 'Status', 'setor' => 'Setor', 'operadora' => 'Operadora', 'tipo' => 'Tipo', 'mdm' => 'MDM'];
+$filterOptionsJson = json_encode([
+    'status'    => ['type' => 'select', 'placeholder' => 'Selecione o status', 'options' => array_map(function ($v) { return array('value' => $v, 'label' => $v); }, $STATUS_LIST)],
+    'setor'     => ['type' => 'select', 'placeholder' => 'Selecione o setor', 'options' => array_map(function ($v) { return array('value' => $v, 'label' => $v); }, $SETORES)],
+    'operadora' => ['type' => 'select', 'placeholder' => 'Selecione a operadora', 'options' => array_map(function ($v) { return array('value' => $v, 'label' => $v); }, $OPERADORAS)],
+    'tipo'      => ['type' => 'select', 'placeholder' => 'Selecione o tipo', 'options' => array_map(function ($v) { return array('value' => $v, 'label' => $v); }, $TIPOS)],
+    'mdm'       => ['type' => 'select', 'placeholder' => 'Selecione o status do MDM', 'options' => [ ['value' => '1', 'label' => 'Ativado'], ['value' => '0', 'label' => 'Desativado'] ]],
+], JSON_UNESCAPED_UNICODE);
+
+
+if (get_query('export') === 'excel') {
+    $exportStmt = $db->prepare('SELECT c.* FROM celulares c WHERE ' . implode(' AND ', $where) . ' ORDER BY c.data_cadastro DESC, c.id DESC');
+    $exportStmt->execute($params);
+    $exportRowsDb = $exportStmt->fetchAll() ?: [];
+    $exportHeaders = !empty($exportRowsDb) ? array_keys($exportRowsDb[0]) : ['mensagem'];
+    $exportRows = [];
+    if ($exportRowsDb) {
+        foreach ($exportRowsDb as $item) {
+            $line = [];
+            foreach ($exportHeaders as $header) {
+                $line[] = $item[$header] ?? '';
+            }
+            $exportRows[] = $line;
+        }
     } else {
-        $value = strtolower($value);
+        $exportRows[] = ['Nenhum registro encontrado'];
     }
-    if (function_exists('iconv')) {
-        $converted = @iconv('UTF-8', 'ASCII//TRANSLIT//IGNORE', $value);
-        if ($converted !== false && $converted !== '') {
-            $value = $converted;
-        }
-    }
-    $map = [
-        'º' => '', 'ª' => '', '°' => '',
-        '(' => ' ', ')' => ' ', '/' => ' ', '\\' => ' ', '-' => ' ', '.' => ' ', ':' => ' ', '$' => '',
-    ];
-    $value = strtr($value, $map);
-    $value = preg_replace('/\s+/u', '_', $value);
-    $value = preg_replace('/[^a-z0-9_]/', '', $value);
-    $value = preg_replace('/_+/', '_', $value);
-    $value = trim($value, '_');
-
-    $aliases = [
-        'cliente_razao' => 'cliente_razao',
-        'cliente_razo' => 'cliente_razao',
-        'cliente_razao_s_a' => 'cliente_razao',
-        'serie' => 'serie',
-        'srie' => 'serie',
-        'serial' => 'serie',
-        'municipio' => 'municipio',
-        'municpio' => 'municipio',
-        'local_inst' => 'local_inst',
-        'local_inst_' => 'local_inst',
-        'pags_produzidas' => 'pags_produzidas',
-        'paginas_produzidas' => 'pags_produzidas',
-        'valor_fixo' => 'valor_fixo',
-        'val_franquia_taxa_fixa' => 'valor_fixo',
-        'valor_variavel' => 'valor_variavel',
-        'val_excedido_produzido' => 'valor_variavel',
-        'valor_total' => 'valor_total',
-    ];
-
-    return $aliases[$value] ?? $value;
+    export_excel_xml('celulares.xls', $exportHeaders, $exportRows);
 }
 
+include 'includes/header.php';
+echo render_flash();
+?>
+<div class="page-head"><div class="page-head-copy"><h2>Inventário de celulares</h2><p></p></div><?php if ($canWrite): ?><div class="page-head-actions"><a href="cadastrar.php?tipo=celular" class="btn btn-primary"><?= icon('plus') ?> Novo celular</a></div><?php endif; ?></div>
 
-function impressao_financeiro_detect_competencia(string $filename): string
-{
-    if (preg_match('/(20\d{2})[-_](0[1-9]|1[0-2])/', $filename, $m)) {
-        return $m[1] . '-' . $m[2];
-    }
-    return date('Y-m');
-}
+<div class="stats-grid chamados-stats inventory-stats">
+    <article class="stat-card chamados-stat chamados-stat-total">
+        <div class="sc-label">Total de celulares</div>
+        <div class="sc-value"><?= number_format((float) $statsCelulares['total'], 0, ',', '.') ?></div>
+        <div class="sc-foot">Celulares listados</div>
+        <div class="sc-bar"></div>
+    </article>
+    <article class="stat-card chamados-stat chamados-stat-success">
+        <div class="sc-label">Em uso</div>
+        <div class="sc-value"><?= number_format((float) $statsCelulares['em_uso'], 0, ',', '.') ?></div>
+        <div class="sc-foot">Status operacional</div>
+        <div class="sc-bar"></div>
+    </article>
+    <article class="stat-card chamados-stat chamados-stat-open">
+        <div class="sc-label">Disponíveis</div>
+        <div class="sc-value"><?= number_format((float) $statsCelulares['disponivel'], 0, ',', '.') ?></div>
+        <div class="sc-foot">Prontos para uso</div>
+        <div class="sc-bar"></div>
+    </article>
+    <article class="stat-card chamados-stat chamados-stat-neutral">
+        <div class="sc-label">MDM ativo</div>
+        <div class="sc-value"><?= number_format((float) $statsCelulares['mdm_ativo'], 0, ',', '.') ?></div>
+        <div class="sc-foot">Gerenciamento habilitado</div>
+        <div class="sc-bar"></div>
+    </article>
+</div>
 
-function impressao_financeiro_base_name(string $filename): string
-{
-    $base = pathinfo($filename, PATHINFO_FILENAME);
-    $base = preg_replace('/\.v\d+$/i', '', $base);
-    return mb_strtolower(trim((string) $base), 'UTF-8');
-}
+<div class="card inventory-card" style="padding:0;overflow:hidden">
+    <div style="display:flex;align-items:center;justify-content:space-between;padding:14px 18px;border-bottom:1px solid var(--bdr);gap:12px;flex-wrap:wrap">
+        <div class="stitle" style="margin:0;flex:1"><?= icon('phone') ?> Celulares <span style="font-size:12px;color:var(--t3);font-weight:400;margin-left:6px"><?= $totalRows ?> registro<?= $totalRows !== 1 ? 's' : '' ?></span></div>
+</div>
 
-function impressao_financeiro_parse_decimal($value): float
-{
-    if ($value === null || $value === '') {
-        return 0.0;
-    }
-    if (is_numeric($value)) {
-        return (float) $value;
-    }
-    $value = trim((string) $value);
-    $value = str_replace(['R$', ' '], '', $value);
-    if (substr_count($value, ',') === 1 && substr_count($value, '.') >= 1) {
-        $value = str_replace('.', '', $value);
-        $value = str_replace(',', '.', $value);
-    } elseif (substr_count($value, ',') === 1) {
-        $value = str_replace(',', '.', $value);
-    }
-    return is_numeric($value) ? (float) $value : 0.0;
-}
+    <form method="get" class="toolbar-shell" id="celulares-filter-form">
+        <div class="toolbar-grow">
+            <input type="text" name="q" placeholder="Buscar por responsável, modelo, IMEI, chip ou operadora..." value="<?= e($busca) ?>">
+        </div>
+        <div class="toolbar-field">
+            <select name="filter_by" id="celulares-filter-by">
+                <option value="">Filtro complementar</option>
+                <option value="status" <?= $filterBy==='status'?'selected':'' ?>>Status</option>
+                <option value="setor" <?= $filterBy==='setor'?'selected':'' ?>>Setor</option>
+                <option value="operadora" <?= $filterBy==='operadora'?'selected':'' ?>>Operadora</option>
+                <option value="tipo" <?= $filterBy==='tipo'?'selected':'' ?>>Tipo</option>
+                <option value="mdm" <?= $filterBy==='mdm'?'selected':'' ?>>MDM</option>
+            </select>
+        </div>
+        <div class="toolbar-field" id="celulares-filter-value-slot"></div>
+        <div class="toolbar-actions">
+            <button type="submit" class="btn btn-ghost btn-sm"><?= icon('filter') ?> Filtrar</button>
+            <a href="celulares.php" class="btn btn-ghost btn-sm">Limpar</a>
+            <a href="celulares.php<?= e(current_query(['export' => 'excel'], ['page'])) ?>" class="btn btn-sm btn-export">Exportar Excel</a>
+        </div>
+    </form>
+    <?php if ($filterBy && $filterValue !== ''): ?>
+    <div class="filter-note" style="padding:0 18px 14px">Filtro aplicado: <strong><?= e($filterLabelMap[$filterBy] ?? $filterBy) ?></strong> = <?= e($MDM_LIST[$filterValue] ?? $filterValue) ?></div>
+    <?php endif; ?>
 
-function impressao_financeiro_parse_int($value): int
-{
-    return (int) floor(impressao_financeiro_parse_decimal($value) + 0.0000001);
-}
-
-function impressao_financeiro_excel_date($value): ?string
-{
-    if ($value instanceof DateTimeInterface) {
-        return $value->format('Y-m-d');
-    }
-    if (is_numeric($value)) {
-        $unix = ((float) $value - 25569) * 86400;
-        return gmdate('Y-m-d', (int) round($unix));
-    }
-    $value = trim((string) $value);
-    if ($value === '') {
-        return null;
-    }
-    $formats = ['Y-m-d', 'd/m/Y', 'd-m-Y', 'Y-m-d H:i:s', 'd/m/Y H:i:s'];
-    foreach ($formats as $format) {
-        $dt = DateTime::createFromFormat($format, $value);
-        if ($dt instanceof DateTime) {
-            return $dt->format('Y-m-d');
+    <?php if (empty($rows)): ?>
+    <div class="empty-state"><?= icon('phone') ?><p>Nenhum celular encontrado.<?php if ($canWrite): ?><br><a href="cadastrar.php?tipo=celular">Cadastrar novo</a><?php endif; ?></p></div>
+    <?php else: ?>
+    <div class="table-wrap inventory-table-wrap">
+    <table class="inventory-table inventory-table-celulares">
+        <thead><tr>
+            <th style="width:52px">#</th>
+            <th>Ativo</th>
+            <th style="width:320px">Contexto</th>
+            <th style="width:300px">Conectividade / Identificação</th>
+            <th style="width:110px">MDM</th>
+            <th style="width:120px">Status</th>
+            <th style="width:84px">Ações</th>
+        </tr></thead>
+        <tbody>
+        <?php $sm = ['Em uso'=>'b-green','Disponível'=>'b-neutral','Manutenção'=>'b-amber','Desativado'=>'b-gray']; foreach ($rows as $c): ?>
+        <?php $displayName = trim((string) (($c['marca'] ?: '') . ' ' . ($c['modelo'] ?: ''))); ?>
+        <tr>
+            <td class="mono" style="color:var(--t3)"><?= (int)$c['id'] ?></td>
+            <td>
+                <div class="asset-premium-main">
+                    <div class="asset-premium-title">
+                        <span class="asset-name"><?= e($displayName ?: 'Celular sem modelo') ?></span>
+                        <span class="asset-sub"><?= e($c['tipo'] ?: 'Smartphone') ?></span>
+                    </div>
+                    <div class="asset-premium-row">
+                        <?php if ($c['numero_serie']): ?><span class="asset-inline-chip"><?= icon('search') ?>Série: <?= e($c['numero_serie']) ?></span><?php endif; ?>
+                        <?php if ($c['imei']): ?><span class="asset-inline-chip"><?= icon('search') ?>IMEI: <?= e($c['imei']) ?></span><?php endif; ?>
+                    </div>
+                </div>
+            </td>
+            <td>
+                <div class="asset-inline-info">
+                    <span><?= icon('user') ?> <?= e($c['usuario_responsavel'] ?: 'Não vinculado') ?></span>
+                    <span><?= icon('box') ?> <?= e($c['setor'] ?: '—') ?></span>
+                    <span><?= icon('phone') ?> <?= e($c['operadora'] ?: '—') ?></span>
+                </div>
+            </td>
+            <td>
+                <div class="asset-spec-inline">
+                    <span><?= e($c['operadora'] ?: '—') ?></span>
+                    <span><?= e($c['numero_chip'] ?: '—') ?></span>
+                    <span><?= e($c['imei'] ?: '—') ?></span>
+                    <span><?= e($c['tipo'] ?: '—') ?></span>
+                </div>
+            </td>
+            <td><span class="badge <?= !empty($c['mdm_ativo']) ? 'badge-mdm-on' : 'badge-mdm-off' ?>"><?= !empty($c['mdm_ativo']) ? 'Ativado' : 'Desativado' ?></span></td>
+            <td><span class="badge <?= $sm[$c['status']] ?? 'b-gray' ?>"><?= e($c['status']) ?></span></td>
+            <td><?php if ($canWrite): ?><div class="act-btns"><a href="editar.php?tipo=celular&id=<?= (int)$c['id'] ?>" class="btn-icon edit" title="Editar"><?= icon('edit') ?></a><form method="post" action="excluir.php" style="display:inline" onsubmit="return confirm('Excluir este celular?')"><?= csrf_input() ?><input type="hidden" name="tipo" value="celular"><input type="hidden" name="id" value="<?= (int)$c['id'] ?>"><button type="submit" class="btn-icon del" title="Excluir" style="border:none;background:none;padding:0"><?= icon('trash') ?></button></form></div><?php else: ?><span class="sub">Somente leitura</span><?php endif; ?></td>
+        </tr>
+        <?php endforeach; ?>
+        </tbody>
+    </table>
+    </div>
+    <?= render_pagination($pagination) ?>
+    <?php endif; ?>
+</div>
+<script>
+(function(){
+    const config = <?= $filterOptionsJson ?>;
+    const select = document.getElementById('celulares-filter-by');
+    const slot = document.getElementById('celulares-filter-value-slot');
+    const currentValue = <?= json_encode($filterValue, JSON_UNESCAPED_UNICODE) ?>;
+    function esc(value){ return String(value).replace(/"/g, '&quot;'); }
+    function renderField(){
+        const key = select.value;
+        if (!key || !config[key]) {
+            slot.innerHTML = '<input type="text" value="" placeholder="Valor do filtro" disabled>';
+            return;
         }
+        const item = config[key];
+        let html = '<select name="filter_value">';
+        html += '<option value="">' + item.placeholder + '</option>';
+        item.options.forEach(function(opt){
+            const selected = String(opt.value) === String(currentValue) ? ' selected' : '';
+            html += '<option value="' + esc(opt.value) + '"' + selected + '>' + opt.label + '</option>';
+        });
+        html += '</select>';
+        slot.innerHTML = html;
     }
-    $time = strtotime($value);
-    return $time ? date('Y-m-d', $time) : null;
-}
-
-function impressao_financeiro_normalize_company(?string $value): string
-{
-    $value = trim((string) $value);
-    $value = preg_replace('/\s+/', ' ', $value);
-    return $value;
-}
-
-function impressao_financeiro_xlsx_shared_strings(ZipArchive $zip): array
-{
-    $content = $zip->getFromName('xl/sharedStrings.xml');
-    if ($content === false || $content === '') {
-        return [];
-    }
-    $xml = simplexml_load_string($content);
-    if (!$xml) {
-        return [];
-    }
-    $xml->registerXPathNamespace('x', 'http://schemas.openxmlformats.org/spreadsheetml/2006/main');
-    $out = [];
-    foreach ($xml->xpath('//x:si') ?: [] as $si) {
-        $parts = [];
-        foreach ($si->xpath('.//*[local-name()="t"]') ?: [] as $t) {
-            $parts[] = (string) $t;
-        }
-        $out[] = implode('', $parts);
-    }
-    return $out;
-}
-
-function impressao_financeiro_xlsx_sheet_path(ZipArchive $zip, string $wantedName): ?string
-{
-    $workbookXml = $zip->getFromName('xl/workbook.xml');
-    $relsXml = $zip->getFromName('xl/_rels/workbook.xml.rels');
-    if ($workbookXml === false || $relsXml === false) {
-        return null;
-    }
-
-    $workbook = simplexml_load_string($workbookXml);
-    $rels = simplexml_load_string($relsXml);
-    if (!$workbook || !$rels) {
-        return null;
-    }
-
-    $workbook->registerXPathNamespace('x', 'http://schemas.openxmlformats.org/spreadsheetml/2006/main');
-    $rels->registerXPathNamespace('r', 'http://schemas.openxmlformats.org/package/2006/relationships');
-
-    $relMap = [];
-    foreach ($rels->xpath('//r:Relationship') ?: [] as $rel) {
-        $id = (string) $rel['Id'];
-        $target = (string) $rel['Target'];
-        if ($id !== '' && $target !== '') {
-            $relMap[$id] = 'xl/' . ltrim($target, '/');
-        }
-    }
-
-    foreach ($workbook->xpath('//x:sheets/x:sheet') ?: [] as $sheet) {
-        $name = trim((string) $sheet['name']);
-        $rid = '';
-        foreach ($sheet->attributes('http://schemas.openxmlformats.org/officeDocument/2006/relationships') as $attrName => $attrValue) {
-            if ($attrName === 'id') {
-                $rid = (string) $attrValue;
-                break;
-            }
-        }
-        if ($rid === '') {
-            continue;
-        }
-        if (mb_strtolower($name, 'UTF-8') === mb_strtolower($wantedName, 'UTF-8')) {
-            return $relMap[$rid] ?? null;
-        }
-    }
-
-    // fallback: first sheet containing "cont"
-    foreach ($workbook->xpath('//x:sheets/x:sheet') ?: [] as $sheet) {
-        $name = trim((string) $sheet['name']);
-        $rid = '';
-        foreach ($sheet->attributes('http://schemas.openxmlformats.org/officeDocument/2006/relationships') as $attrName => $attrValue) {
-            if ($attrName === 'id') {
-                $rid = (string) $attrValue;
-                break;
-            }
-        }
-        if ($rid !== '' && stripos($name, 'cont') !== false) {
-            return $relMap[$rid] ?? null;
-        }
-    }
-
-    return null;
-}
-
-function impressao_financeiro_xlsx_rows(string $filePath, string $sheetName = 'Contadores'): array
-{
-    $zip = new ZipArchive();
-    if ($zip->open($filePath) !== true) {
-        throw new RuntimeException('Não foi possível abrir o arquivo XLSX.');
-    }
-
-    $sheetPath = impressao_financeiro_xlsx_sheet_path($zip, $sheetName);
-    if (!$sheetPath) {
-        $zip->close();
-        throw new RuntimeException('A aba Contadores não foi encontrada no arquivo XLSX.');
-    }
-
-    $sheetXmlContent = $zip->getFromName($sheetPath);
-    if ($sheetXmlContent === false) {
-        $zip->close();
-        throw new RuntimeException('Não foi possível ler a aba Contadores do arquivo XLSX.');
-    }
-
-    $sharedStrings = impressao_financeiro_xlsx_shared_strings($zip);
-    $zip->close();
-
-    $dom = new DOMDocument();
-    if (!@$dom->loadXML($sheetXmlContent)) {
-        throw new RuntimeException('Falha ao interpretar o conteúdo da aba Contadores.');
-    }
-
-    $xpath = new DOMXPath($dom);
-    $xpath->registerNamespace('x', 'http://schemas.openxmlformats.org/spreadsheetml/2006/main');
-
-    $rows = [];
-    foreach ($xpath->query('//x:sheetData/x:row') as $rowNode) {
-        $row = [];
-        $currentIndex = 1;
-
-        foreach ($xpath->query('./x:c', $rowNode) as $cell) {
-            $ref = (string) $cell->getAttribute('r');
-            $type = (string) $cell->getAttribute('t');
-
-            $cellIndex = $currentIndex;
-            if ($ref !== '' && preg_match('/([A-Z]+)/', $ref, $m)) {
-                $cellIndex = 0;
-                foreach (str_split($m[1]) as $char) {
-                    $cellIndex = $cellIndex * 26 + (ord($char) - 64);
-                }
-            }
-
-            while ($currentIndex < $cellIndex) {
-                $row[] = '';
-                $currentIndex++;
-            }
-
-            $value = '';
-            $vNode = $xpath->query('./x:v', $cell)->item(0);
-            if ($vNode) {
-                $value = (string) $vNode->textContent;
-            } else {
-                $inlineTexts = [];
-                foreach ($xpath->query('.//*[local-name()="t"]', $cell) as $textNode) {
-                    $inlineTexts[] = (string) $textNode->textContent;
-                }
-                if ($inlineTexts) {
-                    $value = implode('', $inlineTexts);
-                }
-            }
-
-            if ($type === 's' && $value !== '' && ctype_digit((string) $value)) {
-                $value = $sharedStrings[(int) $value] ?? $value;
-            }
-
-            $row[] = $value;
-            $currentIndex++;
-        }
-
-        $rows[] = $row;
-    }
-
-    return $rows;
-}
-
-function impressao_financeiro_header_map(array $headerRow): array
-{
-    $map = [];
-    foreach ($headerRow as $index => $header) {
-        $normalized = impressao_financeiro_normalize_header($header);
-        if ($normalized !== '') {
-            $map[$normalized] = $index;
-        }
-    }
-    return $map;
-}
-
-function impressao_financeiro_contadores_fallback_map(array $headerRow): array
-{
-    $count = count($headerRow);
-    if ($count < 24) {
-        return [];
-    }
-
-    $fallback = [
-        'contrato' => 0,
-        'nr_contrato' => 1,
-        'cliente' => 2,
-        'cliente_razao' => 3,
-        'uf' => 4,
-        'municipio' => 5,
-        'centro_custo' => 6,
-        'local_inst' => 7,
-        'departamento' => 8,
-    ];
-
-    $temTipo = isset($headerRow[9]) && stripos((string) $headerRow[9], 'Tipo') !== false;
-
-    if ($temTipo) {
-        $fallback['tipo'] = 9;
-        $fallback['equipamento'] = 10;
-        $fallback['modelo'] = 11;
-        $fallback['serie'] = 12;
-        $fallback['patrimonio'] = 13;
-        $fallback['medidor'] = 14;
-        $fallback['data_leitura'] = 16;
-        $fallback['medidor_inicial'] = 17;
-        $fallback['medidor_final'] = 18;
-        $fallback['pags_produzidas'] = 19;
-        $fallback['pags_franquia'] = 20;
-        $fallback['pags_excedente'] = 21;
-        $fallback['valor_fixo'] = 22;
-        $fallback['valor_unitario'] = 23;
-        $fallback['valor_variavel'] = 24;
-    } else {
-        $fallback['equipamento'] = 9;
-        $fallback['modelo'] = 10;
-        $fallback['serie'] = 11;
-        $fallback['patrimonio'] = 12;
-        $fallback['medidor'] = 13;
-        $fallback['data_leitura'] = 15;
-        $fallback['medidor_inicial'] = 16;
-        $fallback['medidor_final'] = 17;
-        $fallback['pags_produzidas'] = 18;
-        $fallback['pags_franquia'] = 19;
-        $fallback['pags_excedente'] = 20;
-        $fallback['valor_fixo'] = 21;
-        $fallback['valor_unitario'] = 22;
-        $fallback['valor_variavel'] = 23;
-        if ($count >= 25) {
-            $fallback['valor_total'] = 24;
-        }
-    }
-
-    return $fallback;
-}
-
-function impressao_financeiro_apply_header_fallbacks(array $map, array $headerRow): array
-{
-    $fallback = impressao_financeiro_contadores_fallback_map($headerRow);
-    foreach ($fallback as $key => $index) {
-        if (!isset($map[$key]) && array_key_exists($index, $headerRow)) {
-            $map[$key] = $index;
-        }
-    }
-    return $map;
-}
-
-function impressao_financeiro_has_alias(array $map, array $aliases): bool
-{
-    foreach ($aliases as $alias) {
-        $key = impressao_financeiro_normalize_header($alias);
-        if (isset($map[$key])) {
-            return true;
-        }
-    }
-    return false;
-}
-
-function impressao_financeiro_row_value(array $row, array $map, array $aliases)
-{
-    foreach ($aliases as $alias) {
-        $key = impressao_financeiro_normalize_header($alias);
-        if (isset($map[$key])) {
-            return $row[$map[$key]] ?? null;
-        }
-    }
-    return null;
-}
-
-function impressao_financeiro_cliente_modelo_cobranca(int $clienteId): string
-{
-    $db = getDB();
-    $stmt = $db->prepare("SELECT modelo_cobranca FROM distribuicao_clientes WHERE id = :id LIMIT 1");
-    $stmt->execute([':id' => $clienteId]);
-    $modelo = (string) ($stmt->fetchColumn() ?: 'sem_franquia');
-    return $modelo === 'com_franquia' ? 'com_franquia' : 'sem_franquia';
-}
-
-function impressao_financeiro_parse_xlsx(string $filePath, string $originalName, int $clienteId): array
-{
-    $rows = impressao_financeiro_xlsx_rows($filePath, 'Contadores');
-    if (count($rows) < 2) {
-        throw new RuntimeException('A aba Contadores não possui dados para importação.');
-    }
-
-    $modeloCobranca = impressao_financeiro_cliente_modelo_cobranca($clienteId);
-    $rowsHeader = array_shift($rows);
-    $map = impressao_financeiro_header_map($rowsHeader);
-    $map = impressao_financeiro_apply_header_fallbacks($map, $rowsHeader);
-    $checks = [
-        'cliente_razao' => ['cliente_razao', 'Cliente (Razão)', 'Cliente Razao', 'razao_social', 'cliente_razo'],
-        'modelo' => ['Modelo'],
-        'serie' => ['serie', 'Serie', 'Série', 'Serial'],
-        'pags_produzidas' => ['pags_produzidas', 'Págs. Produzidas', 'Pags Produzidas', 'Paginas Produzidas'],
-        'valor_fixo' => ['valor_fixo', 'Val.Franquia/Taxa Fixa', 'Val Franquia Taxa Fixa', 'Valor Fixo'],
-    ];
-    foreach ($checks as $name => $aliases) {
-        if (!impressao_financeiro_has_alias($map, $aliases)) {
-            throw new RuntimeException('A aba Contadores não contém a coluna esperada: ' . $name);
-        }
-    }
-
-    $competencia = impressao_financeiro_detect_competencia($originalName);
-    $arquivoBase = impressao_financeiro_base_name($originalName);
-    $parsed = [];
-    $firstCompany = null;
-    $companies = [];
-    $ultimoTotal = [
-        'paginas' => 0,
-        'fixo' => 0.0,
-        'variavel' => 0.0,
-        'geral' => 0.0,
-    ];
-
-    $clienteInfo = $clienteId > 0 ? distribuicao_fetch_cliente($clienteId) : null;
-    $grupoNome = trim((string) ($clienteInfo['nome'] ?? ''));
-    if ($grupoNome === '') {
-        $grupoNome = 'Sem grupo';
-    }
-
-    foreach ($rows as $row) {
-        $contratoCodigo = trim((string) impressao_financeiro_row_value($row, $map, ['Contrato']));
-        $serie = trim((string) impressao_financeiro_row_value($row, $map, ['serie', 'Serie', 'Série', 'Serial']));
-        $empresa = impressao_financeiro_normalize_company((string) impressao_financeiro_row_value(
-            $row,
-            $map,
-            ['cliente_razao', 'Cliente (Razão)', 'Cliente Razao', 'razao_social', 'cliente_razo']
-        ));
-
-        $paginasProduzidas = impressao_financeiro_parse_int(impressao_financeiro_row_value($row, $map, ['pags_produzidas', 'Págs. Produzidas', 'Pags Produzidas', 'Paginas Produzidas']));
-        $paginasFranquia = impressao_financeiro_parse_int(impressao_financeiro_row_value($row, $map, ['Págs. Franquia', 'Pags Franquia', 'Paginas Franquia']));
-        $paginasExcedente = impressao_financeiro_parse_int(impressao_financeiro_row_value($row, $map, ['Págs. Excedente', 'Pags Excedente', 'Paginas Excedente']));
-        $valorBaseUnitario = impressao_financeiro_parse_decimal(impressao_financeiro_row_value($row, $map, ['valor_fixo', 'Val.Franquia/Taxa Fixa', 'Val Franquia Taxa Fixa', 'Valor Fixo']));
-        $valorExcedidoProduzido = impressao_financeiro_parse_decimal(impressao_financeiro_row_value($row, $map, ['valor_variavel', 'Val.Excedido/Produzido', 'Val Excedido Produzido', 'Valor Variavel']));
-        $valorTotal = impressao_financeiro_parse_decimal(impressao_financeiro_row_value($row, $map, ['valor_total', 'Valor Total ($)', 'Valor Total']));
-
-        $primeiraColuna = mb_strtolower(trim((string) $contratoCodigo), 'UTF-8');
-        $isLinhaTotal = in_array($primeiraColuna, ['total', 'totais', 'resumo'], true)
-            || (mb_strtolower(trim((string) $empresa), 'UTF-8') === 'total')
-            || ($serie === '' && $empresa === '' && ($paginasProduzidas > 0 || $valorTotal > 0));
-
-        if ($isLinhaTotal) {
-            $ultimoTotal = [
-                'paginas' => $paginasProduzidas,
-                'fixo' => $valorBaseUnitario,
-                'variavel' => $valorExcedidoProduzido,
-                'geral' => $valorTotal,
-            ];
-            continue;
-        }
-
-        if ($serie === '' || $empresa === '') {
-            continue;
-        }
-
-        $firstCompany ??= $empresa;
-        $companies[$empresa] = true;
-
-        $valorFixo = $valorBaseUnitario;
-        $valorFranquia = 0.0;
-        $valorExcedente = $valorExcedidoProduzido;
-        $valorVariavel = $valorExcedidoProduzido;
-
-        if ($modeloCobranca === 'com_franquia') {
-            $valorFranquia = $valorBaseUnitario * max(0, $paginasFranquia);
-            $valorExcedente = $valorExcedidoProduzido;
-            $valorFixo = $valorFranquia;
-            $valorVariavel = $valorExcedente;
-            if ($valorTotal == 0.0) {
-                $valorTotal = $valorFranquia + $valorExcedente;
-            }
-        } else {
-            if ($valorVariavel == 0.0 && $valorTotal && $valorFixo) {
-                $valorVariavel = max(0.0, $valorTotal - $valorFixo);
-            }
-            if ($valorTotal == 0.0 && ($valorFixo != 0.0 || $valorVariavel != 0.0)) {
-                $valorTotal = $valorFixo + $valorVariavel;
-            }
-        }
-
-        $parsed[] = [
-            'cliente_id' => $clienteId,
-            'competencia' => $competencia,
-            'arquivo_nome' => $originalName,
-            'arquivo_base' => $arquivoBase,
-            'grupo_nome' => $grupoNome,
-            'empresa' => $empresa,
-            'contrato_codigo' => $contratoCodigo,
-            'contrato_numero' => trim((string) impressao_financeiro_row_value($row, $map, ['Nr. Contrato', 'Numero Contrato'])),
-            'cliente_codigo' => trim((string) impressao_financeiro_row_value($row, $map, ['Cliente'])),
-            'uf' => strtoupper(trim((string) impressao_financeiro_row_value($row, $map, ['UF']))),
-            'municipio' => trim((string) impressao_financeiro_row_value($row, $map, ['Município', 'Municipio'])),
-            'centro_custo' => trim((string) impressao_financeiro_row_value($row, $map, ['Centro Custo'])),
-            'local_inst' => trim((string) impressao_financeiro_row_value($row, $map, ['Local Inst.', 'Local Inst', 'Local'])),
-            'departamento' => trim((string) impressao_financeiro_row_value($row, $map, ['Departamento'])),
-            'tipo' => trim((string) impressao_financeiro_row_value($row, $map, ['Tipo'])),
-            'equipamento_codigo' => trim((string) impressao_financeiro_row_value($row, $map, ['Equipamento'])),
-            'modelo' => trim((string) impressao_financeiro_row_value($row, $map, ['Modelo'])),
-            'serie' => $serie,
-            'patrimonio' => trim((string) impressao_financeiro_row_value($row, $map, ['Patrimonio', 'Patrimônio'])),
-            'medidor' => trim((string) impressao_financeiro_row_value($row, $map, ['Medidor'])),
-            'data_leitura' => impressao_financeiro_excel_date(impressao_financeiro_row_value($row, $map, ['Data Leitura'])),
-            'medidor_inicial' => impressao_financeiro_parse_decimal(impressao_financeiro_row_value($row, $map, ['Medidor Inicial'])),
-            'medidor_final' => impressao_financeiro_parse_decimal(impressao_financeiro_row_value($row, $map, ['Medidor Final'])),
-            'paginas_produzidas' => $paginasProduzidas,
-            'paginas_franquia' => $paginasFranquia,
-            'paginas_excedente' => $paginasExcedente,
-            'modelo_cobranca' => $modeloCobranca,
-            'valor_fixo' => $valorFixo,
-            'valor_franquia' => $valorFranquia,
-            'valor_excedente' => $valorExcedente,
-            'valor_unitario' => impressao_financeiro_parse_decimal(impressao_financeiro_row_value($row, $map, ['Excedente/Produção(mil)', 'Excedente Producao mil'])),
-            'valor_variavel' => $valorVariavel,
-            'valor_total' => $valorTotal,
-        ];
-    }
-
-    if (!$parsed) {
-        throw new RuntimeException('Nenhum registro financeiro válido foi encontrado na aba Contadores.');
-    }
-
-    if ($ultimoTotal['geral'] <= 0) {
-        $ultimoTotal = [
-            'paginas' => array_sum(array_map(static fn($item) => (float) ($item['paginas_produzidas'] ?? 0), $parsed)),
-            'fixo' => array_sum(array_map(static fn($item) => (float) ($item['valor_fixo'] ?? 0), $parsed)),
-            'variavel' => array_sum(array_map(static fn($item) => (float) ($item['valor_variavel'] ?? 0), $parsed)),
-            'geral' => array_sum(array_map(static fn($item) => (float) ($item['valor_total'] ?? 0), $parsed)),
-        ];
-    }
-
-    return [
-        'competencia' => $competencia,
-        'arquivo_base' => $arquivoBase,
-        'arquivo_nome' => $originalName,
-        'grupo_nome' => $grupoNome,
-        'empresa_principal' => $firstCompany ?: (count($companies) === 1 ? array_key_first($companies) : 'Múltiplas empresas'),
-        'modelo_cobranca' => $modeloCobranca,
-        'totais_arquivo' => $ultimoTotal,
-        'rows' => $parsed,
-    ];
-}
-
-function impressao_financeiro_import_file(int $clienteId, array $file, int $userId): array
-{
-    impressao_financeiro_ensure_tables();
-    if (($file['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK) {
-        throw new RuntimeException('Falha no upload do arquivo: ' . ($file['name'] ?? 'arquivo desconhecido'));
-    }
-    $tmp = (string) ($file['tmp_name'] ?? '');
-    $name = (string) ($file['name'] ?? '');
-    if ($tmp === '' || !is_uploaded_file($tmp)) {
-        throw new RuntimeException('Arquivo temporário inválido para importação.');
-    }
-    if (!preg_match('/\.xlsx$/i', $name)) {
-        throw new RuntimeException('Somente arquivos XLSX são aceitos nesta importação.');
-    }
-
-    $parsed = impressao_financeiro_parse_xlsx($tmp, $name, $clienteId);
-    $db = getDB();
-    $db->beginTransaction();
-    try {
-        $findImport = $db->prepare('SELECT id FROM impressao_financeiro_importacoes WHERE cliente_id = :cliente_id AND competencia = :competencia AND arquivo_base = :arquivo_base LIMIT 1');
-        $findImport->execute([
-            ':cliente_id' => $clienteId,
-            ':competencia' => $parsed['competencia'],
-            ':arquivo_base' => $parsed['arquivo_base'],
-        ]);
-        $existingId = (int) ($findImport->fetchColumn() ?: 0);
-        if ($existingId > 0) {
-            $db->prepare('DELETE FROM impressao_financeiro_importacoes WHERE id = :id')->execute([':id' => $existingId]);
-        }
-
-        $insertImport = $db->prepare('INSERT INTO impressao_financeiro_importacoes (cliente_id, competencia, arquivo_nome, arquivo_base, grupo_nome, empresa_principal, total_registros, total_paginas, total_fixo, total_variavel, total_geral, uploaded_by) VALUES (:cliente_id, :competencia, :arquivo_nome, :arquivo_base, :grupo_nome, :empresa_principal, :total_registros, :total_paginas, :total_fixo, :total_variavel, :total_geral, :uploaded_by)');
-        $insertImport->execute([
-            ':cliente_id' => $clienteId,
-            ':competencia' => $parsed['competencia'],
-            ':arquivo_nome' => $parsed['arquivo_nome'],
-            ':arquivo_base' => $parsed['arquivo_base'],
-            ':grupo_nome' => $parsed['grupo_nome'],
-            ':empresa_principal' => $parsed['empresa_principal'],
-            ':total_registros' => count($parsed['rows']),
-            ':total_paginas' => (int) round((float) ($parsed['totais_arquivo']['paginas'] ?? 0)),
-            ':total_fixo' => (float) ($parsed['totais_arquivo']['fixo'] ?? 0),
-            ':total_variavel' => (float) ($parsed['totais_arquivo']['variavel'] ?? 0),
-            ':total_geral' => (float) ($parsed['totais_arquivo']['geral'] ?? 0),
-            ':uploaded_by' => $userId ?: null,
-        ]);
-        $importacaoId = (int) $db->lastInsertId();
-
-        $insertRow = $db->prepare('INSERT INTO impressao_financeiro_equipamentos (
-            importacao_id, cliente_id, competencia, grupo_nome, empresa, contrato_numero, contrato_codigo, cliente_codigo,
-            uf, municipio, centro_custo, local_inst, departamento, tipo, equipamento_codigo, modelo, serie, patrimonio,
-            medidor, data_leitura, medidor_inicial, medidor_final, paginas_produzidas, paginas_franquia, paginas_excedente,
-            modelo_cobranca, valor_fixo, valor_franquia, valor_excedente, valor_unitario, valor_variavel, valor_total, arquivo_origem, arquivo_base
-        ) VALUES (
-            :importacao_id, :cliente_id, :competencia, :grupo_nome, :empresa, :contrato_numero, :contrato_codigo, :cliente_codigo,
-            :uf, :municipio, :centro_custo, :local_inst, :departamento, :tipo, :equipamento_codigo, :modelo, :serie, :patrimonio,
-            :medidor, :data_leitura, :medidor_inicial, :medidor_final, :paginas_produzidas, :paginas_franquia, :paginas_excedente,
-            :modelo_cobranca, :valor_fixo, :valor_franquia, :valor_excedente, :valor_unitario, :valor_variavel, :valor_total, :arquivo_origem, :arquivo_base
-        )');
-
-        foreach ($parsed['rows'] as $row) {
-            $row['importacao_id'] = $importacaoId;
-            $insertRow->execute([
-                ':importacao_id' => $importacaoId,
-                ':cliente_id' => $row['cliente_id'],
-                ':competencia' => $row['competencia'],
-                ':grupo_nome' => $row['grupo_nome'],
-                ':empresa' => $row['empresa'],
-                ':contrato_numero' => $row['contrato_numero'],
-                ':contrato_codigo' => $row['contrato_codigo'],
-                ':cliente_codigo' => $row['cliente_codigo'],
-                ':uf' => $row['uf'],
-                ':municipio' => $row['municipio'],
-                ':centro_custo' => $row['centro_custo'],
-                ':local_inst' => $row['local_inst'],
-                ':departamento' => $row['departamento'],
-                ':tipo' => $row['tipo'],
-                ':equipamento_codigo' => $row['equipamento_codigo'],
-                ':modelo' => $row['modelo'],
-                ':serie' => $row['serie'],
-                ':patrimonio' => $row['patrimonio'],
-                ':medidor' => $row['medidor'],
-                ':data_leitura' => $row['data_leitura'],
-                ':medidor_inicial' => $row['medidor_inicial'],
-                ':medidor_final' => $row['medidor_final'],
-                ':paginas_produzidas' => $row['paginas_produzidas'],
-                ':paginas_franquia' => $row['paginas_franquia'],
-                ':paginas_excedente' => $row['paginas_excedente'],
-                ':modelo_cobranca' => $row['modelo_cobranca'],
-                ':valor_fixo' => $row['valor_fixo'],
-                ':valor_franquia' => $row['valor_franquia'],
-                ':valor_excedente' => $row['valor_excedente'],
-                ':valor_unitario' => $row['valor_unitario'],
-                ':valor_variavel' => $row['valor_variavel'],
-                ':valor_total' => $row['valor_total'],
-                ':arquivo_origem' => $parsed['arquivo_nome'],
-                ':arquivo_base' => $parsed['arquivo_base'],
-            ]);
-        }
-
-        $db->commit();
-        return [
-            'arquivo' => $parsed['arquivo_nome'],
-            'competencia' => $parsed['competencia'],
-            'linhas' => count($parsed['rows']),
-            'empresa_principal' => $parsed['empresa_principal'],
-        ];
-    } catch (Throwable $e) {
-        $db->rollBack();
-        throw $e;
-    }
-}
+    renderField();
+    select.addEventListener('change', renderField);
+})();
+</script>
+<?php include 'includes/footer.php'; ?>

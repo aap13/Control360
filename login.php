@@ -1,184 +1,150 @@
 <?php
 require_once __DIR__ . '/includes/bootstrap.php';
-require_once __DIR__ . '/includes/distribuicao_importacao.php';
 
-require_login();
-requireAccess('distribuicao');
-
-$pageTitle = 'Importar base de distribuição';
-
-$pdo = getDB();
-distribuicao_setup_import_tables($pdo);
-
-if (!function_exists('e')) {
-    function e($value) { return htmlspecialchars((string) $value, ENT_QUOTES, 'UTF-8'); }
+if (isset($_SESSION['logado']) && $_SESSION['logado'] === true) {
+    redirect('index.php');
 }
 
-$userId = (int) ($_SESSION['user_id'] ?? 0);
-$isAdmin = (($_SESSION['perfil'] ?? '') === 'admin');
-$allowedClients = distribuicao_get_allowed_clients($pdo, $userId, $isAdmin);
+$erro = '';
+$msg  = '';
 
-$errors = [];
-$success = null;
-$preview = null;
+if (isset($_GET['logout']))  $msg = 'Sessão encerrada com sucesso.';
+if (isset($_GET['timeout'])) $msg = 'Sua sessão expirou. Faça login novamente.';
 
-if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    require_write_access('distribuicao', 'distribuicao_index.php');
+if (request_is_post()) {
     validate_csrf_or_fail($_POST['csrf_token'] ?? null);
 
-    $clienteId = (int) ($_POST['cliente_id'] ?? 0);
-    if ($clienteId <= 0) {
-        $errors[] = 'Selecione um cliente.';
-    } elseif (!$isAdmin && !in_array($clienteId, array_column($allowedClients, 'id'), true)) {
-        $errors[] = 'Você não tem permissão para importar para este cliente.';
-    }
+    $user = trim((string) post('usuario', ''));
+    $pass = trim((string) post('senha', ''));
+    $ip = client_ip();
 
-    if (empty($_FILES['arquivo_csv']['tmp_name'])) {
-        $errors[] = 'Selecione um arquivo CSV.';
-    }
+    if ($user === '' || $pass === '') {
+        $erro = 'Informe usuário e senha.';
+    } else {
+        $db = getDB();
+        $limitWindowMinutes = 10;
+        $maxAttempts = 5;
 
-    if (!$errors) {
-        try {
-            $preview = distribuicao_parse_base_csv($_FILES['arquivo_csv']['tmp_name'], $clienteId);
-            if (isset($_POST['confirmar_importacao']) && $_POST['confirmar_importacao'] === '1') {
-                $result = distribuicao_importar_base_csv($pdo, $preview['rows'], $userId);
-                $success = sprintf(
-                    'Importação concluída. Inseridos: %d | Atualizados: %d | Ignorados: %d',
-                    $result['inserted'],
-                    $result['updated'],
-                    $result['ignored']
-                );
-                $preview = null;
+        $block = $db->prepare("
+            SELECT COUNT(*)
+            FROM login_tentativas
+            WHERE sucesso = 0
+              AND (usuario = :usuario OR ip = :ip)
+              AND data_tentativa >= (NOW() - INTERVAL {$limitWindowMinutes} MINUTE)
+        ");
+        $block->execute([':usuario' => $user, ':ip' => $ip]);
+        $attempts = (int) $block->fetchColumn();
+
+        if ($attempts >= $maxAttempts) {
+            audit_log('bloqueio_login', 'usuarios', null, ['usuario_informado' => $user]);
+            $erro = 'Muitas tentativas de login. Aguarde 10 minutos e tente novamente.';
+        } else {
+            $stmt = $db->prepare("SELECT * FROM usuarios WHERE usuario = :u AND ativo = 1 LIMIT 1");
+            $stmt->execute([':u' => $user]);
+            $row = $stmt->fetch();
+
+            if ($row && password_verify($pass, $row['senha'])) {
+                session_regenerate_id(true);
+                $_SESSION['logado']     = true;
+                $_SESSION['user_id']    = (int) $row['id'];
+                $_SESSION['usuario']    = $row['usuario'];
+                $_SESSION['nome']       = $row['nome'];
+                $_SESSION['perfil']     = $row['perfil'];
+                $_SESSION['permissoes'] = $row['permissoes'] === 'all'
+                    ? all_module_keys()
+                    : (json_decode($row['permissoes'] ?? '[]', true) ?: []);
+
+                // Compatibilidade de sessão para usuários antigos:
+                // se tiver Distribuição ou Faturas, também habilita Financeiro impressão.
+                if (in_array('distribuicao', (array) $_SESSION['permissoes'], true) || in_array('faturas', (array) $_SESSION['permissoes'], true)) {
+                    if (!in_array('impressao_financeiro', (array) $_SESSION['permissoes'], true)) {
+                        $_SESSION['permissoes'][] = 'impressao_financeiro';
+                    }
+                }
+
+                $_SESSION['login_time'] = time();
+
+                $db->prepare("UPDATE usuarios SET ultimo_login = NOW() WHERE id = :id")
+                   ->execute([':id' => $row['id']]);
+
+                $db->prepare("INSERT INTO login_tentativas (usuario, ip, sucesso) VALUES (:usuario, :ip, 1)")
+                   ->execute([':usuario' => $user, ':ip' => $ip]);
+
+                audit_log('login_sucesso', 'usuarios', (int) $row['id'], [
+                    'usuario' => $row['usuario'],
+                    'perfil'  => $row['perfil'],
+                ], (int) $row['id']);
+
+                redirect(default_landing_page());
             }
-        } catch (Exception $e) {
-            $errors[] = $e->getMessage();
+
+            $db->prepare("INSERT INTO login_tentativas (usuario, ip, sucesso) VALUES (:usuario, :ip, 0)")
+               ->execute([':usuario' => $user, ':ip' => $ip]);
+
+            audit_log('login_falha', 'usuarios', null, ['usuario_informado' => $user]);
+
+            $remaining = max(0, $maxAttempts - ($attempts + 1));
+            $erro = $remaining > 0
+                ? "Usuário ou senha inválidos. {$remaining} tentativa(s) restante(s) nesta janela."
+                : 'Muitas tentativas de login. Aguarde 10 minutos e tente novamente.';
         }
     }
 }
-
-require __DIR__ . '/includes/header.php';
 ?>
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CSF Digital — Acesso</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="<?= asset_url('css/bootstrap.min.css') ?>">
+<link rel="stylesheet" href="<?= asset_url('css/app.css') ?>?v=<?= @filemtime(__DIR__ . '/assets/css/app.css') ?: time() ?>">
 
-<div class="page-shell base-import-shell">
-    <div class="page-hero">
-        <div>
-            <h1>Importar base de distribuição</h1>
-            <p>Use um CSV exportado da planilha modelo. O monitoramento continua sendo atualizado separadamente pelo CSV do NDD.</p>
-        </div>
-        <a href="distribuicao_index.php" class="btn btn-secondary">Voltar</a>
+</head>
+<body class="login-page">
+<div class="login-shell">
+<div class="box">
+    <div class="logo-area">
+        <?php if (file_exists(__DIR__.'/logo.png')): ?>
+            <img src="<?= app_url('logo.png') ?>" alt="CSF Digital">
+        <?php else: ?>
+        <div class="fb"><div class="lm">🖥️</div><div class="lt">CSF Digital</div></div>
+        <?php endif; ?>
+        <span class="sub"></span>
     </div>
 
-    <?php if ($success): ?>
-        <div class="alert alert-success"><?= e($success) ?></div>
-    <?php endif; ?>
+    <?php if ($erro): ?><div class="err"><?= htmlspecialchars($erro) ?></div><?php endif; ?>
+    <?php if ($msg):  ?><div class="info"><?= htmlspecialchars($msg) ?></div><?php endif; ?>
 
-    <?php foreach ($errors as $error): ?>
-        <div class="alert alert-error"><?= e($error) ?></div>
-    <?php endforeach; ?>
-
-    <div class="base-import-card">
-        <div class="base-import-head">
-            <div>
-                <h3>Arquivo base da distribuição</h3>
-                <p>Importe a base inicial em <strong>XLSX</strong> ou <strong>CSV UTF-8</strong>. O monitoramento continua separado e é atualizado pelo CSV do NDD.</p>
-            </div>
-            <a href="modelo_importacao_distribuicao_base_atualizado.xlsx" class="btn btn-secondary">Baixar modelo</a>
+    <form method="post" autocomplete="off">
+        <?= csrf_input() ?>
+        <div class="fg">
+            <label>Usuário</label>
+            <input type="text" name="usuario" value="<?= htmlspecialchars($_POST['usuario']??'') ?>" placeholder="Digite seu usuário" autocomplete="username" autofocus>
         </div>
-        <div class="base-import-body">
-            <form method="post" enctype="multipart/form-data">
-                <?= csrf_input() ?>
-                <div class="base-import-grid">
-                    <div class="base-field">
-                        <label>Cliente da distribuição</label>
-                        <select name="cliente_id" required>
-                            <option value="">Selecione um cliente</option>
-                            <?php foreach ($allowedClients as $client): ?>
-                                <option value="<?= (int) $client['id'] ?>" <?= ((int)($_POST['cliente_id'] ?? 0) === (int)$client['id']) ? 'selected' : '' ?>>
-                                    <?= e($client['nome']) ?>
-                                </option>
-                            <?php endforeach; ?>
-                        </select>
-                    </div>
-                    <div class="base-field">
-                        <label>Arquivo da base</label>
-                        <div class="base-filebox">
-                            <div>
-                                <strong>Formatos aceitos</strong>
-                                <span id="base-file-name">XLSX ou CSV</span>
-                            </div>
-                            <label class="base-filebtn" for="arquivo_csv">Escolher arquivo</label>
-                            <input type="file" id="arquivo_csv" name="arquivo_csv" accept=".xlsx,.csv,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" required>
-                        </div>
-                    </div>
-                </div>
-
-                <div class="base-help">
-                    <div class="base-tip"><small>Chave de atualização</small><strong>Cliente + Série</strong></div>
-                    <div class="base-tip"><small>Não altera</small><strong>Monitoramento e histórico</strong></div>
-                    <div class="base-tip"><small>Linhas sem série</small><strong>Serão ignoradas</strong></div>
-                </div>
-
-                <?php if ($preview): ?>
-                    <input type="hidden" name="confirmar_importacao" value="1">
-                <?php endif; ?>
-
-                <div class="base-actions">
-                    <button type="submit" class="btn btn-primary">
-                        <?= $preview ? 'Confirmar importação' : 'Importar base' ?>
-                    </button>
-                </div>
-            </form>
-        </div>
-    </div>
-    <script>
-    (function(){
-      var input=document.getElementById('arquivo_csv');
-      var name=document.getElementById('base-file-name');
-      if(input&&name){input.addEventListener('change',function(){name.textContent=this.files&&this.files[0]?this.files[0].name:'XLSX ou CSV';});}
-    })();
-    </script>
-
-    <?php if ($preview): ?>
-        <div class="card mt-4">
-            <div class="card-header">
-                <h3>Prévia</h3>
-            </div>
-            <div class="card-body">
-                <div class="stats-row">
-                    <div class="stat-box"><small>Total lido</small><strong><?= (int) $preview['summary']['total'] ?></strong></div>
-                    <div class="stat-box"><small>Com série</small><strong><?= (int) $preview['summary']['with_serial'] ?></strong></div>
-                    <div class="stat-box"><small>Sem série</small><strong><?= (int) $preview['summary']['without_serial'] ?></strong></div>
-                </div>
-
-                <div class="table-wrap mt-3">
-                    <table class="table">
-                        <thead>
-                            <tr>
-                                <th>Linha</th>
-                                <th>Código local</th>
-                                <th>Setor / unidade</th>
-                                <th>Modelo</th>
-                                <th>Série</th>
-                                <th>Status</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            <?php foreach (array_slice($preview['rows'], 0, 20) as $row): ?>
-                                <tr>
-                                    <td><?= (int) $row['_line'] ?></td>
-                                    <td><?= e($row['codigo_local']) ?></td>
-                                    <td><?= e($row['setor']) ?></td>
-                                    <td><?= e($row['modelo']) ?></td>
-                                    <td><?= e($row['serie']) ?></td>
-                                    <td><?= e($row['status_operacional']) ?></td>
-                                </tr>
-                            <?php endforeach; ?>
-                        </tbody>
-                    </table>
-                </div>
-                <p class="mt-2 text-muted">Prévia limitada às primeiras 20 linhas.</p>
+        <div class="fg">
+            <label>Senha</label>
+            <div class="iw">
+                <input type="password" id="pwd" name="senha" placeholder="••••••••" autocomplete="current-password">
+                <button type="button" class="eye" onclick="togglePwd()">
+                    <svg id="eyeico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/>
+                    </svg>
+                </button>
             </div>
         </div>
-    <?php endif; ?>
+        <button type="submit" class="btn-in">Entrar</button>
+    </form>
+    <div class="ft">© <?= date('Y') ?> CSF Digital</div>
 </div>
-<?php require __DIR__ . '/includes/footer.php'; ?>
+</div>
+<script>
+function togglePwd(){
+    const i=document.getElementById('pwd'),e=document.getElementById('eyeico');
+    if(i.type==='password'){i.type='text';e.innerHTML='<path d="M17.94 17.94A10.07 10.07 0 0112 20c-7 0-11-8-11-8a18.45 18.45 0 015.06-5.94M9.9 4.24A9.12 9.12 0 0112 4c7 0 11 8 11 8a18.5 18.5 0 01-2.16 3.19m-6.72-1.07a3 3 0 11-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/>';}
+    else{i.type='password';e.innerHTML='<path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/>';}
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,100 @@
+.btn{
+  border-radius:14px!important;
+  font-weight:700!important;
+  min-height:42px;
+  box-shadow:none!important;
+  transition:transform .15s ease, border-color .15s ease, background-color .15s ease, color .15s ease!important;
+}
+.btn:hover{transform:translateY(-1px)}
+.btn-primary,.base-filebtn.btn-primary,.fin-tab.active{
+  background:linear-gradient(180deg,#bf2627,#8f1819)!important;
+  border:1px solid rgba(163,29,30,.42)!important;
+  color:#fff!important;
+}
+.btn-primary:hover{filter:brightness(1.04)}
+.btn-secondary,.btn-ghost,.btn-outline-secondary,.btn-light{
+  background:#0b0b0c!important;
+  border:1px solid var(--line)!important;
+  color:var(--text)!important;
+}
+.btn-secondary:hover,.btn-ghost:hover,.btn-outline-secondary:hover,.btn-light:hover{
+  background:#121112!important;border-color:var(--line-strong)!important;color:#fff!important;
+}
+.btn-success,.btn-export{background:#157347!important;border-color:#1f9d62!important;color:#fff!important}
+.btn-danger{background:#631717!important;border-color:#922020!important;color:#fff!important}
+.btn-icon,.dbt-icon{
+  background:#0b0b0c!important;border:1px solid var(--line)!important;color:var(--muted)!important;
+}
+.btn-icon:hover,.dbt-icon:hover{background:#121112!important;border-color:var(--line-strong)!important;color:#fff!important}
+
+.stat-card,.inventory-kpi-card,.fin-kpi,.faturas-kpi,.metric-chip{
+  position:relative!important;overflow:hidden!important;min-height:118px!important;
+}
+.stat-card::before,.inventory-kpi-card::before,.fin-kpi::before,.metric-chip::before,.faturas-kpi::before{
+  content:"";position:absolute;left:18px;right:18px;top:0;height:2px;background:rgba(163,29,30,.78)!important;opacity:.9;
+}
+.chamados-stat-total::before,.inventory-kpi-card:nth-child(1)::before,.fin-kpi-total::before,
+.chamados-stat-open::before,.inventory-kpi-card:nth-child(2)::before,.fin-kpi-aluguel::before,
+.chamados-stat-today::before,.inventory-kpi-card:nth-child(3)::before,.fin-kpi-paginas::before,
+.chamados-stat-closed::before,.inventory-kpi-card:nth-child(4)::before,.fin-kpi-impressoras::before,
+.fin-kpi-empresas::before{background:var(--primary)!important}
+.sc-label,.inventory-kpi-label,.lbl,.k,.label,.s-label{color:var(--muted)!important;font-size:11px!important;letter-spacing:.1em!important;text-transform:uppercase!important;font-weight:700!important}
+.sc-value,.inventory-kpi-value,.val,.v,.value,.s-value{color:#fff!important;font-size:clamp(1.75rem,2vw,2.3rem)!important;font-weight:800!important;line-height:1.1!important}
+.sc-foot,.inventory-kpi-sub,.sub,.s-sub,.s{color:var(--muted)!important;font-size:13px!important}
+.sc-bar,.kpi-bar,.inventory-kpi-bar{height:4px!important;background:rgba(255,255,255,.05)!important;border-radius:999px!important}
+
+.table-wrap,.inventory-table-wrap,.fin-table-wrap{overflow:auto!important}
+.table,.dtbl,.inventory-table,.fin-table{background:transparent!important}
+.table th,.dtbl thead th,.inventory-table thead th,.fin-table th{
+  background:#0d0d0e!important;
+  color:var(--muted)!important;
+  border-bottom:1px solid var(--line)!important;
+  font-size:11px!important;
+  letter-spacing:.08em!important;
+  text-transform:uppercase!important;
+}
+.table td,.dtbl td,.inventory-table td,.fin-table td{
+  border-color:var(--line)!important;
+  color:var(--text)!important;
+  background:transparent!important;
+}
+.table tbody tr:hover td,.dtbl tbody tr:hover td,.inventory-table tbody tr:hover td,.fin-table tbody tr:hover td{background:rgba(255,255,255,.018)!important}
+
+.badge,.soft-pill,.asset-inline-chip,.fin-badge{
+  border-radius:999px!important;
+  border:1px solid var(--line)!important;
+  background:#161314!important;
+  color:#e4dada!important;
+  font-weight:700!important;
+}
+.dot.red,.b-danger,.status-atrasado,.badge.red{background:rgba(163,29,30,.18)!important;border-color:rgba(163,29,30,.34)!important;color:#ffb7b8!important}
+.dot.green,.b-success,.status-resolvido,.status-no_prazo,.badge.green{background:rgba(31,157,98,.16)!important;border-color:rgba(31,157,98,.32)!important;color:#adf1d1!important}
+.dot.orange,.badge.orange{background:rgba(185,122,24,.16)!important;border-color:rgba(185,122,24,.32)!important;color:#f0d4a0!important}
+.dot.gray,.b-neutral,.badge.gray{background:rgba(111,98,99,.18)!important;border-color:rgba(111,98,99,.34)!important;color:#d4c5c6!important}
+.dot.blue,.b-info,.status-aguardando_cliente,.badge.blue{background:rgba(163,29,30,.16)!important;border-color:rgba(163,29,30,.30)!important;color:#ffd3d4!important}
+.hbar-track,.city-row .bar,.progress,.progress-track{background:rgba(255,255,255,.05)!important}
+.hbar-fill,.city-row .fill,.progress-fill,.vbar{
+  background:linear-gradient(90deg,#a31d1e,#cf3a3c)!important;
+}
+.hbar-fill.b-success{background:linear-gradient(90deg,#16784a,#22a565)!important}
+.hbar-fill.b-danger,.city-row .fill{background:linear-gradient(90deg,#8f1819,#c73435)!important}
+.hbar-fill.b-warning{background:linear-gradient(90deg,#8b5c14,#c9891f)!important}
+
+.donut,.chart-donut{box-shadow:inset 0 0 0 1px rgba(255,255,255,.05)!important}
+.donut-hole{background:var(--bg-main)!important;border:1px solid var(--line)!important}
+
+.report-card .donut[style*="#ff4d5a"]{background:conic-gradient(var(--primary) 0deg 180deg, #4b3f40 180deg 360deg)!important}
+
+
+.table th,.dtbl thead th,.inventory-table thead th,.fin-table th,
+.table thead,.inventory-table thead,.fin-table thead,.dtbl thead{
+  background:#0b0b0c!important;
+  background-image:none!important;
+}
+.table-wrap,.inventory-table-wrap,.fin-table-wrap,.table,.inventory-table,.fin-table,.dtbl{
+  background:#0b0b0c!important;
+  background-image:none!important;
+}
+.asset-inline-chip,.asset-spec-inline .soft-pill,.soft-pill,.badge,.soft-pill,.fin-badge{
+  background:#141112!important;
+}

@@ -1,0 +1,73 @@
+/* Inventário */
+.inventory-kpi-card,.stat-card,.overview-card,.analytics-card,.report-card,.fin-card,.fin-filters-card,.faturas-chart-card,.faturas-side-card{
+  background:var(--bg-card)!important;
+}
+.inventory-kpi-card,.stat-card{padding:20px!important}
+.inventory-table-wrap,.table-wrap,.fin-table-wrap,.chamados-board{padding:0!important}
+.toolbar-shell,.dist-filters,.fin-note,.filter-note{
+  background:var(--bg-card)!important;
+  border:1px solid var(--line)!important;
+  border-radius:18px!important;
+}
+.toolbar-actions,.fin-filter-actions,.base-actions{gap:10px!important}
+.asset-inline-chip,.asset-spec-inline .soft-pill,.soft-pill{background:#161314!important;border-color:var(--line-strong)!important}
+.asset-premium-title,.asset-name,.dp,strong{color:#f8f5f5!important}
+.asset-sub,.ds,.dm,.dlb,.legend-item span,.mon-last{color:var(--muted)!important}
+
+/* Faturas */
+.faturas-bar{background:linear-gradient(180deg,#c03435 0%, #8f1819 100%)!important;box-shadow:none!important}
+.faturas-bar-col.is-active .faturas-bar{background:linear-gradient(180deg,#d34849 0%, #a31d1e 100%)!important}
+.faturas-bar-col.is-muted .faturas-bar{opacity:.35!important}
+.faturas-side-card,.faturas-chart-card,.faturas-kpi{background:var(--bg-card)!important}
+
+/* Financeiro impressão */
+.fin-page .fin-tab{background:#0a0a0b!important;border:1px solid var(--line)!important;color:var(--text)!important;box-shadow:none!important}
+.fin-page .fin-tab.active{background:linear-gradient(180deg,#bf2627,#8f1819)!important;border-color:rgba(163,29,30,.42)!important}
+.fin-page .fin-note{background:rgba(163,29,30,.07)!important;border:1px dashed rgba(163,29,30,.26)!important;color:var(--text)!important}
+.fin-page .fin-inline-stat,.fin-page .fin-mini-kpi{background:#111112!important;border:1px solid var(--line)!important}
+.fin-page .fin-table th,.fin-page .fin-sticky-first th:first-child,.fin-page .fin-sticky-two th:nth-child(2){background:#0d0d0e!important}
+.fin-page .fin-table.table-pivot td:first-child,.fin-page .fin-table.table-wide td:first-child,
+.fin-page .fin-sticky-first tbody td:first-child,.fin-page .fin-sticky-two tbody td:nth-child(2){background:#0d0d0e!important}
+
+/* Distribuição */
+.analytics-card .head span,.overview-card .metric-chip .label,.city-row .count,.metric-chip .sub{color:var(--muted)!important}
+.metric-chip{background:#111112!important}
+.city-row .rank{background:rgba(163,29,30,.18)!important;border-color:rgba(163,29,30,.34)!important}
+.company-highlight{color:#fff!important}
+.chart-wrap canvas{filter:saturate(.82)}
+
+/* Chamados */
+.chamados-board,.report-card{padding:18px!important}
+.msg,.ticket-message,.message-card{
+  background:#0c0c0d!important;border:1px solid var(--line)!important;border-radius:16px!important;box-shadow:none!important
+}
+.msg.cliente,.message-cliente{border-left:3px solid var(--primary)!important;background:#100909!important}
+.msg.analista,.message-analista{border-left:3px solid #7a3f45!important;background:#0d0b0b!important}
+.msg.interna,.message-interna{border-left:3px solid #6f6263!important;background:#111010!important}
+.reply-box,.reply-card,.actions-panel,.summary-panel{background:var(--bg-card)!important;border:1px solid var(--line)!important;border-radius:18px!important}
+.chamados-board .table-link,.table-link{color:#efe2e2!important;text-decoration:none}
+.chamados-board .table-link:hover,.table-link:hover{color:#fff!important}
+.vbar{width:28px!important;border-radius:12px!important;background:linear-gradient(180deg,#c03435,#8f1819)!important}
+.line-bars{align-items:end!important;gap:20px!important}
+
+/* Categorias e SLA */
+.form-grid,.split-grid,.inventory-overview-grid{align-items:start!important}
+
+/* Fornecedores */
+.card.pad-lg,.pad-lg{padding:18px!important}
+
+
+/* hard overrides for residual blue surfaces */
+.card,.table-wrap,.inventory-table-wrap,.fin-table-wrap,.toolbar-shell,.reply-box,.reply-card,.actions-panel,.summary-panel,
+.faturas-side-card,.faturas-chart-card,.report-card,.analytics-card,.overview-card,.fin-card,.fin-filters-card,
+.chamados-board,.inventory-kpi-card,.stat-card,.metric-chip,.soft-panel,.pad-lg,.base-import-card{
+  background:#0b0b0c!important;
+  background-image:none!important;
+}
+.table td,.dtbl td,.inventory-table td,.fin-table td,
+.table th,.dtbl th,.inventory-table th,.fin-table th{
+  background-image:none!important;
+}
+.sidebar,.topbar,.nav-link,.nav-link .ni,.topbar-title-icon,.page-icon,.title-icon{
+  box-shadow:none!important;
+}

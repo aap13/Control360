@@ -1,3 +1,3 @@
 <?php
-$SETORES = ['Fiscal/Financeiro','TI','Atendimento','Logistica','Tecnico','Externo'];
-$LOCAIS  = ['CSF SLZ','CSF FOR'];
+$isEdit = false;
+require __DIR__ . '/distribuicao_form_base.php';

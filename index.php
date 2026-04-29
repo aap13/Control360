@@ -1,42 +1,409 @@
 <?php
 require_once __DIR__ . '/includes/bootstrap.php';
-requireAccess('distribuicao');
+require_login();
+
+$pageTitle = 'Dashboard';
 $db = getDB();
-$equipamento = null;
-if ($isEdit) {
-    $id = query_int('id', 0, 1);
-    $equipamento = distribuicao_fetch_equipamento($id);
-    if (!$equipamento) { flash('Equipamento não encontrado.', 'error'); redirect('distribuicao_index.php'); }
-    distribuicao_require_cliente_access((int)$equipamento['cliente_id'], 'editar');
-    $clientesDisponiveis = [distribuicao_fetch_cliente((int)$equipamento['cliente_id'])];
-} else {
-    $clientesDisponiveis = distribuicao_accessible_clients('cadastrar');
-    if (empty($clientesDisponiveis)) { flash('Você não tem clientes liberados para cadastrar equipamentos na distribuição.', 'error'); redirect('distribuicao_index.php'); }
-}
-$erros = [];
-if (request_is_post()) {
-    validate_csrf_or_fail($_POST['csrf_token'] ?? null);
-    $clienteId=(int)post('cliente_id',0); $codigoLocal=trim((string)post('codigo_local','')); $contrato=trim((string)post('contrato','')); $pp=trim((string)post('pp','')); $uf=strtoupper(trim((string)post('uf',''))); $municipio=trim((string)post('municipio','')); $regional=trim((string)post('regional','')); $unidade=trim((string)post('unidade','')); $setor=trim((string)post('setor','')); $endereco=trim((string)post('endereco','')); $tipoEquipamento=trim((string)post('tipo_equipamento','')); $fabricante=trim((string)post('fabricante','')); $modelo=trim((string)post('modelo','')); $serie=trim((string)post('serie','')); $nomeImpressora=trim((string)post('nome_impressora','')); $monitoramento=trim((string)post('monitoramento','Ativo')); $statusOperacional=trim((string)post('status_operacional','Ativa')); $dataInstalacao=trim((string)post('data_instalacao','')); $observacoes=trim((string)post('observacoes',''));
-    if ($clienteId <= 0) $erros[]='Selecione o cliente.'; if ($modelo==='') $erros[]='Informe o modelo.'; if ($serie==='') $erros[]='Informe a série.'; if ($unidade==='') $erros[]='Informe a unidade/local.'; if ($clienteId > 0 && !distribuicao_can_access_cliente($clienteId, $isEdit ? 'editar' : 'cadastrar')) $erros[]='Você não pode gravar equipamentos para esse cliente.';
-    if (!$erros) {
-        $params=[':cliente_id'=>$clienteId,':codigo_local'=>$codigoLocal?:null,':contrato'=>$contrato?:null,':pp'=>$pp?:null,':uf'=>$uf?:null,':municipio'=>$municipio?:null,':regional'=>$regional?:null,':unidade'=>$unidade?:null,':setor'=>$setor?:null,':endereco'=>$endereco?:null,':tipo_equipamento'=>$tipoEquipamento?:null,':fabricante'=>$fabricante?:null,':modelo'=>$modelo?:null,':serie'=>$serie?:null,':nome_impressora'=>$nomeImpressora?:null,':monitoramento'=>$monitoramento?:'Ativo',':status_operacional'=>$statusOperacional?:'Ativa',':data_instalacao'=>$dataInstalacao?:null,':observacoes'=>$observacoes?:null];
-        if ($isEdit && $equipamento) {
-            $db->prepare("UPDATE distribuicao_equipamentos SET cliente_id=:cliente_id, codigo_local=:codigo_local, contrato=:contrato, pp=:pp, uf=:uf, municipio=:municipio, regional=:regional, unidade=:unidade, setor=:setor, endereco=:endereco, tipo_equipamento=:tipo_equipamento, fabricante=:fabricante, modelo=:modelo, serie=:serie, nome_impressora=:nome_impressora, monitoramento=:monitoramento, status_operacional=:status_operacional, data_instalacao=:data_instalacao, observacoes=:observacoes WHERE id=:id")->execute($params + [':id'=>$equipamento['id']]);
-            distribuicao_record_movimentacao(['equipamento_id'=>$equipamento['id'],'cliente_id'=>$clienteId,'tipo_movimentacao'=>'atualizacao','data_movimentacao'=>date('Y-m-d'),'serie_antiga'=>$equipamento['serie'],'serie_nova'=>$serie,'modelo_antigo'=>$equipamento['modelo'],'modelo_novo'=>$modelo,'status_anterior'=>$equipamento['status_operacional'],'status_novo'=>$statusOperacional,'monitoramento_anterior'=>$equipamento['monitoramento'],'monitoramento_novo'=>$monitoramento,'origem'=>$equipamento['unidade'],'destino'=>$unidade,'motivo'=>'Atualização cadastral','observacoes'=>$observacoes]);
-            audit_log('distribuicao_equipamento_atualizado','distribuicao_equipamentos',(int)$equipamento['id'],['cliente_id'=>$clienteId,'serie'=>$serie],current_user_id());
-            flash('Equipamento atualizado com sucesso.');
-        } else {
-            $db->prepare("INSERT INTO distribuicao_equipamentos (cliente_id, codigo_local, contrato, pp, uf, municipio, regional, unidade, setor, endereco, tipo_equipamento, fabricante, modelo, serie, nome_impressora, monitoramento, status_operacional, data_instalacao, observacoes) VALUES (:cliente_id, :codigo_local, :contrato, :pp, :uf, :municipio, :regional, :unidade, :setor, :endereco, :tipo_equipamento, :fabricante, :modelo, :serie, :nome_impressora, :monitoramento, :status_operacional, :data_instalacao, :observacoes)")->execute($params);
-            $newId=(int)$db->lastInsertId();
-            distribuicao_record_movimentacao(['equipamento_id'=>$newId,'cliente_id'=>$clienteId,'tipo_movimentacao'=>'instalacao','data_movimentacao'=>$dataInstalacao ?: date('Y-m-d'),'serie_nova'=>$serie,'modelo_novo'=>$modelo,'status_novo'=>$statusOperacional,'monitoramento_novo'=>$monitoramento,'destino'=>$unidade,'motivo'=>'Cadastro inicial','observacoes'=>$observacoes]);
-            audit_log('distribuicao_equipamento_criado','distribuicao_equipamentos',$newId,['cliente_id'=>$clienteId,'serie'=>$serie],current_user_id());
-            flash('Equipamento cadastrado com sucesso.');
-        }
-        redirect('distribuicao_index.php');
+
+$anoAtual = (int) date('Y');
+$mesAtual = (int) date('n');
+$MESES = ['', 'Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
+
+$flash = getFlash();
+
+$defaults = [
+    'totalComp' => 0, 'emUsoComp' => 0, 'dispComp' => 0, 'manutComp' => 0,
+    'totalCel' => 0, 'emUsoCel' => 0, 'dispCel' => 0, 'manutCel' => 0,
+    'gastoMes' => 0.0, 'gastoAno' => 0.0, 'pagamentosAno' => 0, 'fornecedoresAtivos' => 0,
+    'mesesFin' => [], 'maxMesFin' => 1, 'topForn' => [], 'maxForn' => 1,
+    'setoresComp' => [], 'setoresCel' => [], 'recentes' => [],
+    'printResumo' => ['paginas' => 0, 'fixo' => 0.0, 'impressao' => 0.0, 'total' => 0.0, 'equipamentos' => 0, 'competencias' => 0],
+    'printEmpresas' => [], 'printMaxTotal' => 1.0,
+];
+extract($defaults);
+
+try {
+    $totalComp = (int) $db->query("SELECT COUNT(*) FROM computadores")->fetchColumn();
+    $emUsoComp = (int) $db->query("SELECT COUNT(*) FROM computadores WHERE status='Em uso'")->fetchColumn();
+    $dispComp  = (int) $db->query("SELECT COUNT(*) FROM computadores WHERE status='Disponível'")->fetchColumn();
+    $manutComp = (int) $db->query("SELECT COUNT(*) FROM computadores WHERE status='Manutenção'")->fetchColumn();
+
+    $totalCel = (int) $db->query("SELECT COUNT(*) FROM celulares")->fetchColumn();
+    $emUsoCel = (int) $db->query("SELECT COUNT(*) FROM celulares WHERE status='Em uso'")->fetchColumn();
+    $dispCel  = (int) $db->query("SELECT COUNT(*) FROM celulares WHERE status='Disponível'")->fetchColumn();
+    $manutCel = (int) $db->query("SELECT COUNT(*) FROM celulares WHERE status='Manutenção'")->fetchColumn();
+
+    $stmt = $db->prepare("SELECT COALESCE(SUM(valor),0) FROM faturas WHERE mes_referencia=:m AND ano_referencia=:a");
+    $stmt->execute([':m' => $mesAtual, ':a' => $anoAtual]);
+    $gastoMes = (float) $stmt->fetchColumn();
+
+    $stmt = $db->prepare("SELECT COALESCE(SUM(valor),0) FROM faturas WHERE ano_referencia=:a");
+    $stmt->execute([':a' => $anoAtual]);
+    $gastoAno = (float) $stmt->fetchColumn();
+
+    $pagamentosAno = (int) $db->query("SELECT COUNT(*) FROM faturas WHERE ano_referencia={$anoAtual}")->fetchColumn();
+    $fornecedoresAtivos = (int) $db->query("SELECT COUNT(*) FROM fornecedores WHERE ativo=1")->fetchColumn();
+
+    $ultMeses = $db->prepare("
+        SELECT mes_referencia AS mes, SUM(valor) AS total
+        FROM faturas
+        WHERE ano_referencia=:a
+        GROUP BY mes_referencia
+        ORDER BY mes_referencia DESC
+        LIMIT 6
+    ");
+    $ultMeses->execute([':a' => $anoAtual]);
+    $mesesFin = array_reverse($ultMeses->fetchAll(PDO::FETCH_ASSOC));
+    $maxMesFin = $mesesFin ? max(array_column($mesesFin, 'total')) : 1;
+
+    $topFornStmt = $db->prepare("
+        SELECT fo.nome, SUM(f.valor) AS total
+        FROM faturas f
+        JOIN fornecedores fo ON fo.id = f.fornecedor_id
+        WHERE f.ano_referencia=:a
+        GROUP BY fo.id, fo.nome
+        ORDER BY total DESC
+        LIMIT 5
+    ");
+    $topFornStmt->execute([':a' => $anoAtual]);
+    $topForn = $topFornStmt->fetchAll(PDO::FETCH_ASSOC);
+    $maxForn = $topForn ? max(array_column($topForn, 'total')) : 1;
+
+    $setoresComp = $db->query("SELECT COALESCE(setor,'Não informado') AS setor, COUNT(*) AS n FROM computadores GROUP BY setor ORDER BY n DESC LIMIT 6")->fetchAll(PDO::FETCH_ASSOC);
+    $setoresCel  = $db->query("SELECT COALESCE(setor,'Não informado') AS setor, COUNT(*) AS n FROM celulares GROUP BY setor ORDER BY n DESC LIMIT 6")->fetchAll(PDO::FETCH_ASSOC);
+
+    try {
+        $printResumoStmt = $db->query("
+            SELECT
+                COALESCE(SUM(paginas_produzidas), 0) AS paginas,
+                COALESCE(SUM(valor_fixo), 0) AS fixo,
+                COALESCE(SUM(valor_variavel), 0) AS impressao,
+                COALESCE(SUM(valor_total), 0) AS total,
+                COUNT(DISTINCT CASE
+                    WHEN COALESCE(TRIM(serie), '') <> '' THEN TRIM(serie)
+                    ELSE CONCAT('ROW||', id)
+                END) AS equipamentos,
+                COUNT(DISTINCT competencia) AS competencias
+            FROM impressao_financeiro_equipamentos
+        ");
+        $printResumo = $printResumoStmt->fetch(PDO::FETCH_ASSOC) ?: $printResumo;
+
+        $printEmpresasStmt = $db->query("
+            SELECT
+                empresa,
+                COALESCE(SUM(paginas_produzidas), 0) AS paginas,
+                COALESCE(SUM(valor_fixo), 0) AS fixo,
+                COALESCE(SUM(valor_variavel), 0) AS impressao,
+                COALESCE(SUM(valor_total), 0) AS total
+            FROM impressao_financeiro_equipamentos
+            GROUP BY empresa
+            ORDER BY total DESC, empresa ASC
+            LIMIT 6
+        ");
+        $printEmpresas = $printEmpresasStmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
+        $printMaxTotal = !empty($printEmpresas) ? max(array_map(function ($row) { return (float) ($row['total'] ?? 0); }, $printEmpresas)) : 1.0;
+    } catch (Throwable $e) {
+        $printEmpresas = [];
     }
+
+    try {
+        $recentes = $db->query("
+            SELECT 'computador' AS cat, id, nome_dispositivo AS nome_item, marca, modelo, usuario_responsavel AS usuario_nome, setor, status, data_cadastro
+            FROM computadores
+            UNION ALL
+            SELECT 'celular' AS cat, id, CONCAT(COALESCE(marca,''), CASE WHEN modelo IS NOT NULL AND modelo <> '' THEN CONCAT(' ', modelo) ELSE '' END) AS nome_item, marca, modelo, usuario_responsavel AS usuario_nome, setor, status, data_cadastro
+            FROM celulares
+            ORDER BY data_cadastro DESC
+            LIMIT 6
+        ")->fetchAll(PDO::FETCH_ASSOC);
+    } catch (Throwable $e) {
+        $recentes = [];
+    }
+} catch (Throwable $e) {
+    // alerta genérico removido; métricas indisponíveis ficam zeradas
+    $flash = $flash;
 }
-include 'includes/header.php'; echo render_flash();
+
+$ativosEmUso = $emUsoComp + $emUsoCel;
+$totalAtivos = $totalComp + $totalCel;
+$ativosDisponiveis = $dispComp + $dispCel;
+$ativosManutencao = $manutComp + $manutCel;
+
+$chamadosResumo = ['total' => 0, 'abertos' => 0, 'hoje' => 0, 'fechadosMes' => 0];
+$ultimosChamados = [];
+$chamadosCategorias = [];
+$maxCategoriaChamado = 1;
+$setoresResumo = [];
+
+try {
+    if (function_exists('chamados_resumo_dashboard')) {
+        $chamadosResumo = chamados_resumo_dashboard();
+    }
+    $ultimosChamados = $db->query("
+        SELECT c.id, c.protocolo, c.assunto, c.status, c.prioridade, c.nome_solicitante, c.atualizado_em, cat.nome AS categoria_nome
+        FROM hesk_chamados c
+        LEFT JOIN hesk_categorias cat ON cat.id = c.categoria_id
+        ORDER BY c.atualizado_em DESC, c.id DESC
+        LIMIT 5
+    ")->fetchAll(PDO::FETCH_ASSOC) ?: [];
+    $chamadosCategorias = $db->query("
+        SELECT COALESCE(cat.nome, 'Sem categoria') AS nome, COUNT(*) AS total
+        FROM hesk_chamados c
+        LEFT JOIN hesk_categorias cat ON cat.id = c.categoria_id
+        GROUP BY cat.nome
+        ORDER BY total DESC, nome ASC
+        LIMIT 5
+    ")->fetchAll(PDO::FETCH_ASSOC) ?: [];
+    $maxCategoriaChamado = !empty($chamadosCategorias) ? max(array_map(static function ($row) { return (int) ($row['total'] ?? 0); }, $chamadosCategorias)) : 1;
+} catch (Throwable $e) {
+    $ultimosChamados = [];
+    $chamadosCategorias = [];
+}
+
+$setorMap = [];
+foreach ($setoresComp as $item) {
+    $nome = trim((string) ($item['setor'] ?? '')) ?: 'Não informado';
+    if (!isset($setorMap[$nome])) {
+        $setorMap[$nome] = ['nome' => $nome, 'computadores' => 0, 'celulares' => 0, 'total' => 0];
+    }
+    $setorMap[$nome]['computadores'] += (int) ($item['n'] ?? 0);
+    $setorMap[$nome]['total'] += (int) ($item['n'] ?? 0);
+}
+foreach ($setoresCel as $item) {
+    $nome = trim((string) ($item['setor'] ?? '')) ?: 'Não informado';
+    if (!isset($setorMap[$nome])) {
+        $setorMap[$nome] = ['nome' => $nome, 'computadores' => 0, 'celulares' => 0, 'total' => 0];
+    }
+    $setorMap[$nome]['celulares'] += (int) ($item['n'] ?? 0);
+    $setorMap[$nome]['total'] += (int) ($item['n'] ?? 0);
+}
+if (!empty($setorMap)) {
+    uasort($setorMap, static function ($a, $b) { return ($b['total'] <=> $a['total']) ?: strcmp((string) $a['nome'], (string) $b['nome']); });
+    $setoresResumo = array_slice(array_values($setorMap), 0, 6);
+}
+
+include __DIR__ . '/includes/header.php';
+
+function title_case_safe(string $value): string {
+    $value = trim($value);
+    if ($value === '') return 'Não vinculado';
+    if (function_exists('mb_convert_case')) {
+        return mb_convert_case($value, MB_CASE_TITLE, 'UTF-8');
+    }
+    return ucwords(strtolower($value));
+}
 ?>
-<div class="page-head"><div class="page-head-copy"><h2><?= $isEdit ? 'Editar equipamento da distribuição' : 'Novo equipamento na distribuição' ?></h2><p><?= $isEdit ? 'Atualize a situação atual da impressora instalada.' : 'Cadastre a situação atual de uma impressora instalada para um cliente específico.' ?></p></div></div>
-<?php if ($erros): ?><div class="alert alert-error"><?= icon('off') ?> <?= implode(' · ', array_map('e',$erros)) ?></div><?php endif; ?>
-<div class="card"><form method="post"><?= csrf_input() ?><div class="form-grid"><div class="form-group"><label>Cliente <span class="req">*</span></label><select name="cliente_id" <?= $isEdit ? 'disabled' : '' ?>><option value="0">Selecione</option><?php foreach ($clientesDisponiveis as $cliente): ?><option value="<?= (int)$cliente['id'] ?>" <?= (int)($equipamento['cliente_id'] ?? ($_POST['cliente_id'] ?? 0)) === (int)$cliente['id'] ? 'selected' : '' ?>><?= e($cliente['nome']) ?></option><?php endforeach; ?></select><?php if ($isEdit): ?><input type="hidden" name="cliente_id" value="<?= (int)$equipamento['cliente_id'] ?>"><?php endif; ?></div><div class="form-group"><label>Contrato</label><input type="text" name="contrato" value="<?= e($equipamento['contrato'] ?? ($_POST['contrato'] ?? '')) ?>"></div><div class="form-group"><label>PP</label><input type="text" name="pp" value="<?= e($equipamento['pp'] ?? ($_POST['pp'] ?? '')) ?>"></div><div class="form-group"><label>Código local</label><input type="text" name="codigo_local" value="<?= e($equipamento['codigo_local'] ?? ($_POST['codigo_local'] ?? '')) ?>"></div><div class="form-group"><label>UF</label><input type="text" name="uf" maxlength="2" value="<?= e($equipamento['uf'] ?? ($_POST['uf'] ?? '')) ?>"></div><div class="form-group"><label>Município</label><input type="text" name="municipio" value="<?= e($equipamento['municipio'] ?? ($_POST['municipio'] ?? '')) ?>"></div><div class="form-group"><label>Regional</label><input type="text" name="regional" value="<?= e($equipamento['regional'] ?? ($_POST['regional'] ?? '')) ?>"></div><div class="form-group"><label>Unidade / Local <span class="req">*</span></label><input type="text" name="unidade" value="<?= e($equipamento['unidade'] ?? ($_POST['unidade'] ?? '')) ?>"></div><div class="form-group"><label>Setor</label><input type="text" name="setor" value="<?= e($equipamento['setor'] ?? ($_POST['setor'] ?? '')) ?>"></div><div class="form-group"><label>Tipo equipamento</label><input type="text" name="tipo_equipamento" value="<?= e($equipamento['tipo_equipamento'] ?? ($_POST['tipo_equipamento'] ?? 'Impressora')) ?>"></div><div class="form-group full"><label>Endereço</label><input type="text" name="endereco" value="<?= e($equipamento['endereco'] ?? ($_POST['endereco'] ?? '')) ?>"></div><div class="form-group"><label>Fabricante</label><input type="text" name="fabricante" value="<?= e($equipamento['fabricante'] ?? ($_POST['fabricante'] ?? '')) ?>"></div><div class="form-group"><label>Modelo <span class="req">*</span></label><input type="text" name="modelo" value="<?= e($equipamento['modelo'] ?? ($_POST['modelo'] ?? '')) ?>"></div><div class="form-group"><label>Série <span class="req">*</span></label><input type="text" name="serie" value="<?= e($equipamento['serie'] ?? ($_POST['serie'] ?? '')) ?>"></div><div class="form-group"><label>Nome da impressora</label><input type="text" name="nome_impressora" value="<?= e($equipamento['nome_impressora'] ?? ($_POST['nome_impressora'] ?? '')) ?>"></div><div class="form-group"><label>Monitoramento</label><select name="monitoramento"><?php foreach (distribuicao_monitoramento_options() as $opt): ?><option value="<?= e($opt) ?>" <?= (($equipamento['monitoramento'] ?? ($_POST['monitoramento'] ?? 'Ativo')) === $opt) ? 'selected' : '' ?>><?= e($opt) ?></option><?php endforeach; ?></select></div><div class="form-group"><label>Status operacional</label><select name="status_operacional"><?php foreach (distribuicao_status_options() as $opt): ?><option value="<?= e($opt) ?>" <?= (($equipamento['status_operacional'] ?? ($_POST['status_operacional'] ?? 'Ativa')) === $opt) ? 'selected' : '' ?>><?= e($opt) ?></option><?php endforeach; ?></select></div><div class="form-group"><label>Data de instalação</label><input type="date" name="data_instalacao" value="<?= e($equipamento['data_instalacao'] ?? ($_POST['data_instalacao'] ?? '')) ?>"></div><div class="form-group full"><label>Observações</label><textarea name="observacoes"><?= e($equipamento['observacoes'] ?? ($_POST['observacoes'] ?? '')) ?></textarea></div></div><div class="form-actions"><button type="submit" class="btn btn-primary"><?= icon('check') ?> Salvar</button><a href="distribuicao_index.php" class="btn btn-ghost">Cancelar</a></div></form></div>
+
+
+<?php if ($flash): ?>
+<div class="alert alert-<?= $flash['type']==='success' ? 'success' : 'error' ?>">
+    <?= icon($flash['type']==='success' ? 'check' : 'off') ?>
+    <span><?= htmlspecialchars($flash['msg']) ?></span>
+</div>
+<?php endif; ?>
+
+<?php
+$statusLabelsDashboard = function_exists('chamados_status_labels') ? chamados_status_labels() : [];
+$maxSetorResumo = !empty($setoresResumo) ? max(array_map(static function ($row) { return (int) ($row['total'] ?? 0); }, $setoresResumo)) : 1;
+$maxMesFinDashboard = $maxMesFin > 0 ? (float) $maxMesFin : 1.0;
+?>
+
+<section class="dashboard-v39">
+  <section class="dashboard-v39-hero">
+    <div class="dashboard-v39-copy">
+      <div class="dashboard-v39-kicker"><?= icon('dashboard') ?> Dashboard operacional</div>
+      <h1 class="dashboard-v39-title">Uma visão mais clara do parque, chamados e custos.</h1>
+      <p class="dashboard-v39-sub">A nova dashboard consolida inventário, atendimento e financeiro em uma leitura rápida, com o mesmo padrão visual dos chamados e sem aqueles cards azuis fora do contexto.</p>
+      <div class="dashboard-v39-actions">
+        <a href="computadores.php" class="btn btn-primary btn-sm"><?= icon('computer') ?> Computadores</a>
+        <a href="celulares.php" class="btn btn-ghost btn-sm"><?= icon('phone') ?> Celulares</a>
+        <a href="chamados_index.php" class="btn btn-ghost btn-sm"><?= icon('ticket') ?> Chamados</a>
+        <a href="faturas.php?ano=<?= $anoAtual ?>&mes=<?= $mesAtual ?>" class="btn btn-ghost btn-sm"><?= icon('bill') ?> Financeiro</a>
+      </div>
+    </div>
+    <div class="dashboard-v39-side">
+      <div class="dashboard-v39-mini"><span class="k">Ativos totais</span><strong><?= number_format($totalAtivos, 0, ',', '.') ?></strong><small>Computadores + celulares cadastrados</small></div>
+      <div class="dashboard-v39-mini"><span class="k">Chamados abertos</span><strong><?= number_format((int) ($chamadosResumo['abertos'] ?? 0), 0, ',', '.') ?></strong><small>Fila com acompanhamento pendente</small></div>
+      <div class="dashboard-v39-mini"><span class="k">Gasto do mês</span><strong>R$<?= number_format($gastoMes, 0, ',', '.') ?></strong><small>Competência <?= $MESES[$mesAtual] ?></small></div>
+      <div class="dashboard-v39-mini"><span class="k">Em uso</span><strong><?= number_format($ativosEmUso, 0, ',', '.') ?></strong><small>Ativos operacionais no momento</small></div>
+    </div>
+  </section>
+
+  <section class="dashboard-v39-grid">
+    <article class="dashboard-v39-card">
+      <div class="label"><span>Total de ativos</span><span class="ni"><?= icon('box') ?></span></div>
+      <div class="value"><?= number_format($totalAtivos, 0, ',', '.') ?></div>
+      <div class="foot"><span class="chip"><?= number_format($totalComp, 0, ',', '.') ?> computadores</span><span class="chip"><?= number_format($totalCel, 0, ',', '.') ?> celulares</span></div>
+    </article>
+    <article class="dashboard-v39-card">
+      <div class="label"><span>Ativos em uso</span><span class="ni"><?= icon('check') ?></span></div>
+      <div class="value"><?= number_format($ativosEmUso, 0, ',', '.') ?></div>
+      <div class="foot"><span class="chip"><?= number_format($ativosDisponiveis, 0, ',', '.') ?> disponíveis</span><span class="chip"><?= number_format($ativosManutencao, 0, ',', '.') ?> manutenção</span></div>
+    </article>
+    <article class="dashboard-v39-card">
+      <div class="label"><span>Chamados</span><span class="ni"><?= icon('ticket') ?></span></div>
+      <div class="value"><?= number_format((int) ($chamadosResumo['total'] ?? 0), 0, ',', '.') ?></div>
+      <div class="foot"><span class="chip"><?= number_format((int) ($chamadosResumo['abertos'] ?? 0), 0, ',', '.') ?> em aberto</span><span class="chip"><?= number_format((int) ($chamadosResumo['hoje'] ?? 0), 0, ',', '.') ?> hoje</span></div>
+    </article>
+    <article class="dashboard-v39-card">
+      <div class="label"><span>Financeiro do ano</span><span class="ni"><?= icon('bill') ?></span></div>
+      <div class="value">R$<?= number_format($gastoAno, 0, ',', '.') ?></div>
+      <div class="foot"><span class="chip"><?= number_format($pagamentosAno, 0, ',', '.') ?> lançamentos</span><span class="chip"><?= number_format($fornecedoresAtivos, 0, ',', '.') ?> fornecedores ativos</span></div>
+    </article>
+  </section>
+
+  <section class="dashboard-v39-columns">
+    <article class="card dashboard-v39-panel">
+      <div class="panel-head">
+        <div>
+          <div class="panel-title"><?= icon('spark') ?> Panorama do inventário</div>
+          <div class="panel-note">Distribuição atual entre operação, disponibilidade e manutenção.</div>
+        </div>
+      </div>
+      <div class="panel-body dashboard-v39-stack">
+        <div>
+          <div class="dashboard-v39-row"><div class="meta"><strong>Computadores</strong><span><?= $emUsoComp ?> em uso · <?= $dispComp ?> disponíveis · <?= $manutComp ?> manutenção</span></div><div class="num"><?= $totalComp ?></div></div>
+          <div class="dashboard-v39-progress"><span style="width:<?= $totalAtivos > 0 ? round(($totalComp / max($totalAtivos, 1)) * 100) : 0 ?>%"></span></div>
+        </div>
+        <div>
+          <div class="dashboard-v39-row"><div class="meta"><strong>Celulares</strong><span><?= $emUsoCel ?> em uso · <?= $dispCel ?> disponíveis · <?= $manutCel ?> manutenção</span></div><div class="num"><?= $totalCel ?></div></div>
+          <div class="dashboard-v39-progress"><span style="width:<?= $totalAtivos > 0 ? round(($totalCel / max($totalAtivos, 1)) * 100) : 0 ?>%"></span></div>
+        </div>
+        <div>
+          <div class="dashboard-v39-row"><div class="meta"><strong>Capacidade operacional</strong><span>Percentual de ativos realmente em uso no parque</span></div><div class="num"><?= $totalAtivos > 0 ? round(($ativosEmUso / max($totalAtivos, 1)) * 100) : 0 ?>%</div></div>
+          <div class="dashboard-v39-progress"><span style="width:<?= $totalAtivos > 0 ? round(($ativosEmUso / max($totalAtivos, 1)) * 100) : 0 ?>%"></span></div>
+        </div>
+        <?php if (canAccess('impressao_financeiro')): ?>
+        <div>
+          <div class="dashboard-v39-row"><div class="meta"><strong>Impressão consolidada</strong><span><?= number_format((float) ($printResumo['paginas'] ?? 0), 0, ',', '.') ?> páginas · <?= (int) ($printResumo['equipamentos'] ?? 0) ?> impressoras</span></div><div class="num">R$<?= number_format((float) ($printResumo['total'] ?? 0), 0, ',', '.') ?></div></div>
+          <div class="dashboard-v39-progress"><span style="width:100%"></span></div>
+        </div>
+        <?php endif; ?>
+      </div>
+    </article>
+
+    <article class="card dashboard-v39-panel">
+      <div class="panel-head">
+        <div>
+          <div class="panel-title"><?= icon('bill') ?> Financeiro recente</div>
+          <div class="panel-note">Últimos meses registrados em <?= $anoAtual ?>.</div>
+        </div>
+        <a href="faturas.php?ano=<?= $anoAtual ?>" class="btn btn-ghost btn-xs">Abrir financeiro</a>
+      </div>
+      <div class="panel-body">
+        <?php if (empty($mesesFin)): ?>
+          <div class="empty-state"><?= icon('bill') ?><p>Nenhum lançamento financeiro registrado em <?= $anoAtual ?>.</p></div>
+        <?php else: ?>
+        <div class="dashboard-v39-bars">
+          <?php foreach ($mesesFin as $mf): $h = $maxMesFinDashboard > 0 ? max(12, round((((float) $mf['total']) / $maxMesFinDashboard) * 100)) : 12; ?>
+          <div class="dashboard-v39-barcol">
+            <div class="dashboard-v39-barval">R$<?= number_format((float) $mf['total'], 0, ',', '.') ?></div>
+            <div class="dashboard-v39-barwrap"><div class="dashboard-v39-bar" style="height:<?= $h ?>%"></div></div>
+            <div class="dashboard-v39-barlabel"><?= $MESES[(int) $mf['mes']] ?? '—' ?></div>
+          </div>
+          <?php endforeach; ?>
+        </div>
+        <?php endif; ?>
+      </div>
+    </article>
+
+    <article class="card dashboard-v39-panel">
+      <div class="panel-head">
+        <div>
+          <div class="panel-title"><?= icon('ticket') ?> Chamados recentes</div>
+          <div class="panel-note">Atualizações mais recentes da operação.</div>
+        </div>
+        <a href="chamados_index.php" class="btn btn-ghost btn-xs">Ver fila</a>
+      </div>
+      <div class="panel-body">
+        <?php if (empty($ultimosChamados)): ?>
+          <div class="empty-state"><?= icon('ticket') ?><p>Nenhum chamado registrado ainda.</p></div>
+        <?php else: ?>
+        <div class="dashboard-v39-ticket">
+          <?php foreach ($ultimosChamados as $item): $statusKey = (string) ($item['status'] ?? ''); ?>
+          <div class="dashboard-v39-ticket-item">
+            <div class="dashboard-v39-ticket-top">
+              <div>
+                <div class="dashboard-v39-ticket-code"><?= icon('ticket') ?> <a href="chamados_visualizar.php?id=<?= (int) ($item['id'] ?? 0) ?>"><?= e($item['protocolo'] ?? '—') ?></a></div>
+                <div class="dashboard-v39-ticket-subject"><?= e($item['assunto'] ?? 'Sem assunto') ?></div>
+              </div>
+              <?php if ($statusKey !== ''): ?><span class="badge <?= e(chamados_status_badge_class($statusKey)) ?>"><?= e($statusLabelsDashboard[$statusKey] ?? $statusKey) ?></span><?php endif; ?>
+            </div>
+            <div class="dashboard-v39-ticket-meta">
+              <?php if (!empty($item['categoria_nome'])): ?><span class="dashboard-v39-badge"><?= e($item['categoria_nome']) ?></span><?php endif; ?>
+              <?php if (!empty($item['nome_solicitante'])): ?><span class="dashboard-v39-badge"><?= e($item['nome_solicitante']) ?></span><?php endif; ?>
+              <span class="dashboard-v39-badge"><?= date('d/m/Y H:i', strtotime((string) ($item['atualizado_em'] ?? 'now'))) ?></span>
+            </div>
+          </div>
+          <?php endforeach; ?>
+        </div>
+        <?php endif; ?>
+      </div>
+    </article>
+  </section>
+
+  <section class="dashboard-v39-split">
+    <article class="card dashboard-v39-panel">
+      <div class="panel-head">
+        <div>
+          <div class="panel-title"><?= icon('users') ?> Setores com mais ativos</div>
+          <div class="panel-note">Leitura rápida do volume por área.</div>
+        </div>
+      </div>
+      <div class="panel-body">
+        <?php if (empty($setoresResumo)): ?>
+          <div class="empty-state"><?= icon('users') ?><p>Nenhum setor disponível no momento.</p></div>
+        <?php else: ?>
+        <div class="dashboard-v39-stack">
+          <?php foreach ($setoresResumo as $setor): $pct = $maxSetorResumo > 0 ? round((((int) $setor['total']) / $maxSetorResumo) * 100) : 0; ?>
+          <div>
+            <div class="dashboard-v39-row">
+              <div class="meta"><strong><?= e($setor['nome']) ?></strong><span><?= (int) $setor['computadores'] ?> computadores · <?= (int) $setor['celulares'] ?> celulares</span></div>
+              <div class="num"><?= (int) $setor['total'] ?></div>
+            </div>
+            <div class="dashboard-v39-progress"><span style="width:<?= $pct ?>%"></span></div>
+          </div>
+          <?php endforeach; ?>
+        </div>
+        <?php endif; ?>
+      </div>
+    </article>
+
+    <article class="card dashboard-v39-panel">
+      <div class="panel-head">
+        <div>
+          <div class="panel-title"><?= icon('clock') ?> Últimos ativos cadastrados</div>
+          <div class="panel-note">Ativos adicionados recentemente no sistema.</div>
+        </div>
+      </div>
+      <div class="panel-body">
+        <?php if (empty($recentes)): ?>
+          <div class="empty-state"><?= icon('box') ?><p>Nenhum ativo cadastrado ainda.</p></div>
+        <?php else: ?>
+        <div class="table-wrap">
+          <table class="dashboard-v39-table">
+            <thead>
+              <tr><th>Ativo</th><th>Usuário</th><th>Status</th><th></th></tr>
+            </thead>
+            <tbody>
+              <?php $sm = ['Em uso' => 'b-green', 'Disponível' => 'b-neutral', 'Manutenção' => 'b-amber', 'Desativado' => 'b-gray']; foreach ($recentes as $r): ?>
+              <tr>
+                <td>
+                  <span class="main"><?= e($r['nome_item'] ?: 'Sem nome') ?></span>
+                  <span class="sub"><?= e(($r['cat'] === 'computador' ? 'Computador' : 'Celular') . ' · ' . ($r['marca'] ?: 'Marca não informada')) ?></span>
+                </td>
+                <td><?= e(title_case_safe((string) ($r['usuario_nome'] ?? ''))) ?></td>
+                <td><span class="badge <?= $sm[$r['status']] ?? 'b-gray' ?>"><?= e($r['status'] ?: '—') ?></span></td>
+                <td><a href="editar.php?tipo=<?= $r['cat'] ?>&id=<?= (int) $r['id'] ?>" class="btn-icon"><?= icon('edit') ?></a></td>
+              </tr>
+              <?php endforeach; ?>
+            </tbody>
+          </table>
+        </div>
+        <?php endif; ?>
+      </div>
+    </article>
+  </section>
+</section>
+
+<?php include __DIR__ . '/includes/footer.php'; ?>
